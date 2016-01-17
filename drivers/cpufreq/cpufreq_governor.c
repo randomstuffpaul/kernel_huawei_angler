@@ -41,6 +41,14 @@ void dbs_check_cpu(struct dbs_data *dbs_data, int cpu)
 	unsigned int ignore_nice;
 	unsigned int j;
 
+	/* Remove Compilation Warnings */
+	j = 0;
+	max_load = 0;
+	policy = NULL;
+	ex_tuners = dbs_data->tuners;
+	cs_tuners = dbs_data->tuners;
+	cdbs = dbs_data->cdata->get_cpu_cdbs(cpu);
+
 	if (dbs_data->cdata->governor == GOV_ONDEMAND) {
 		ignore_nice = od_tuners->ignore_nice_load;
 	} else if (dbs_data->cdata->governor == GOV_ELEMENTALX) {
