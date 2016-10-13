@@ -46,7 +46,6 @@
 #include <linux/msm-bus.h>
 #include <linux/irq.h>
 #include <soc/qcom/scm.h>
-#include <linux/usb/typec.h>
 
 #include "dwc3_otg.h"
 #include "core.h"
@@ -78,8 +77,7 @@ module_param(override_phy_init, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(override_phy_init, "Override HSPHY Init Seq");
 
 /* Enable Proprietary charger detection */
-/* modified for floated charger */
-static bool prop_chg_detect = 1;
+static bool prop_chg_detect;
 module_param(prop_chg_detect, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(prop_chg_detect, "Enable Proprietary charger detection");
 
@@ -1293,17 +1291,6 @@ static bool dwc3_chg_det_check_linestate(struct dwc3_msm *mdwc)
 	return chg_det & (3 << 8);
 }
 
-static u32 dwc3_msm_get_linestate(struct dwc3_charger *charger)
-{
-	struct dwc3_msm *mdwc = container_of(charger, struct dwc3_msm, charger);
-	u32 linestate;
-
-	linestate = dwc3_msm_read_reg_field(mdwc->base, CHARGING_DET_OUTPUT_REG,
-								(3 << 8));
-	pr_debug("line state in chg_det_output_reg = 0x%08x\n", linestate);
-	return linestate;
-}
-
 static bool dwc3_chg_det_check_output(struct dwc3_msm *mdwc)
 {
 	u32 chg_det;
@@ -1381,7 +1368,7 @@ static const char *chg_to_string(enum dwc3_chg_type chg_type)
 }
 
 #define DWC3_CHG_DCD_POLL_TIME		(100 * HZ/1000) /* 100 msec */
-#define DWC3_CHG_DCD_MAX_RETRIES	6 /* Tdcd_tmout = 6 * 100 msec */
+#define DWC3_CHG_DCD_MAX_RETRIES	8 /* Tdcd_tmout = 8 * 100 msec */
 #define DWC3_CHG_PRIMARY_DET_TIME	(50 * HZ/1000) /* TVDPSRC_ON */
 #define DWC3_CHG_SECONDARY_DET_TIME	(50 * HZ/1000) /* TVDMSRC_ON */
 
@@ -1412,8 +1399,14 @@ static void dwc3_chg_detect_work(struct work_struct *w)
 			dwc3_chg_disable_dcd(mdwc);
 			usleep_range(1000, 1200);
 			if (dwc3_chg_det_check_linestate(mdwc)) {
-				mdwc->charger.chg_type =
-						DWC3_PROPRIETARY_CHARGER;
+				mdwc->charger.chg_type = DWC3_PROPRIETARY_CHARGER;
+				mdwc->chg_state = USB_CHG_STATE_DETECTED;
+				delay = 0;
+				break;
+			}
+			/* set DCP charger when dcd failed */
+			if(tmout) {
+				mdwc->charger.chg_type = DWC3_DCP_CHARGER;
 				mdwc->chg_state = USB_CHG_STATE_DETECTED;
 				delay = 0;
 				break;
@@ -1437,8 +1430,7 @@ static void dwc3_chg_detect_work(struct work_struct *w)
 			 * charger detection is enabled.
 			 */
 			if (!dcd && prop_chg_detect)
-				mdwc->charger.chg_type =
-						DWC3_FLOATED_CHARGER;
+				mdwc->charger.chg_type = DWC3_FLOATED_CHARGER;
 			else
 				mdwc->charger.chg_type = DWC3_SDP_CHARGER;
 			mdwc->chg_state = USB_CHG_STATE_DETECTED;
@@ -1493,7 +1485,8 @@ static void dwc3_start_chg_det(struct dwc3_charger *charger, bool start)
 
 	/* Skip if charger type was already detected externally */
 	if (mdwc->chg_state == USB_CHG_STATE_DETECTED &&
-		charger->chg_type != DWC3_INVALID_CHARGER)
+			charger->chg_type != DWC3_INVALID_CHARGER &&
+			!mdwc->charger.internal_chg_detect)
 		return;
 
 	mdwc->chg_state = USB_CHG_STATE_UNDEFINED;
@@ -2272,8 +2265,6 @@ get_prop_usbin_voltage_now(struct dwc3_msm *mdwc)
 	}
 }
 
-#define HIGH_CURRENT_UA		1800000
-#define MEDIUM_CURRENT_UA	1500000
 static int dwc3_msm_power_get_property_usb(struct power_supply *psy,
 				  enum power_supply_property psp,
 				  union power_supply_propval *val)
@@ -2290,12 +2281,7 @@ static int dwc3_msm_power_get_property_usb(struct power_supply *psy,
 		val->intval = mdwc->voltage_max;
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
-		if (typec_current_mode_detect() == TYPEC_CURRENT_MODE_HIGH)
-			val->intval = HIGH_CURRENT_UA;
-		else if (typec_current_mode_detect() == TYPEC_CURRENT_MODE_MID)
-			val->intval = MEDIUM_CURRENT_UA;
-		else
-			val->intval = mdwc->current_max;
+		val->intval = mdwc->current_max;
 		break;
 	case POWER_SUPPLY_PROP_PRESENT:
 		val->intval = mdwc->vbus_active;
@@ -2313,6 +2299,12 @@ static int dwc3_msm_power_get_property_usb(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_HEALTH:
 		val->intval = mdwc->health_status;
+		break;
+	case POWER_SUPPLY_PROP_USB_OTG:
+		val->intval = (mdwc->id_state == DWC3_ID_GROUND);
+		break;
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_MAX:
+		val->intval = mdwc->ext_xceiv.cc_power_max;
 		break;
 	default:
 		return -EINVAL;
@@ -2336,7 +2328,6 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
 		mdwc->id_state = val->intval ? DWC3_ID_GROUND : DWC3_ID_FLOAT;
 		if (mdwc->otg_xceiv)
 			queue_work(system_nrt_wq, &mdwc->id_work);
-
 		break;
 	case POWER_SUPPLY_PROP_SCOPE:
 		mdwc->scope = val->intval;
@@ -2386,6 +2377,8 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_TYPE:
 		psy->type = val->intval;
+		if (mdwc->charger.internal_chg_detect)
+			break;
 
 		switch (psy->type) {
 		case POWER_SUPPLY_TYPE_USB:
@@ -2396,10 +2389,6 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
 			break;
 		case POWER_SUPPLY_TYPE_USB_HVDCP:
 			mdwc->charger.chg_type = DWC3_DCP_CHARGER;
-			/* healthd do not support hvdcp, and hvdcp is
-			 * a kind of dcp chargers, report dcp to healthd
-			 */
-			psy->type = POWER_SUPPLY_TYPE_USB_DCP;
 			usb_phy_set_power(phy, hvdcp_max_current);
 			break;
 		case POWER_SUPPLY_TYPE_USB_CDP:
@@ -2410,8 +2399,6 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
 			break;
 		default:
 			mdwc->charger.chg_type = DWC3_INVALID_CHARGER;
-			/* set default power supply type as USB */
-			psy->type = POWER_SUPPLY_TYPE_USB;
 			break;
 		}
 
@@ -2424,6 +2411,31 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_HEALTH:
 		mdwc->health_status = val->intval;
 		break;
+	/* Process Type-C CC UFP power notification */
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_MAX:
+		mdwc->ext_xceiv.cc_power_max = val->intval;
+		if (mdwc->vbus_active) {
+			switch (mdwc->charger.chg_type) {
+			case DWC3_SDP_CHARGER:
+				if (dotg->dwc->gadget.speed == USB_SPEED_SUPER)
+					usb_phy_set_power(phy,
+						DWC3_USB30_CHG_MAX);
+				else
+					usb_phy_set_power(phy,
+						CONFIG_USB_GADGET_VBUS_DRAW);
+				break;
+			case DWC3_DCP_CHARGER:
+			case DWC3_PROPRIETARY_CHARGER:
+				usb_phy_set_power(phy, dcp_max_current);
+				break;
+			case DWC3_CDP_CHARGER:
+				usb_phy_set_power(phy, DWC3_IDEV_CHG_MAX);
+				break;
+			default:
+				break;
+			}
+		}
+		return 0;
 	default:
 		return -EINVAL;
 	}
@@ -2488,6 +2500,8 @@ static enum power_supply_property dwc3_msm_pm_power_props_usb[] = {
 	POWER_SUPPLY_PROP_SCOPE,
 //	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_HEALTH,
+	POWER_SUPPLY_PROP_USB_OTG,
+	POWER_SUPPLY_PROP_INPUT_CURRENT_MAX
 };
 
 static void dwc3_init_adc_work(struct work_struct *w);
@@ -3044,6 +3058,9 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "power collapse=%d, POR=%d\n",
 		mdwc->power_collapse, mdwc->power_collapse_por);
 
+	mdwc->charger.internal_chg_detect = of_property_read_bool(node,
+				"qcom,internal-chg-detect");
+
 	ret = of_property_read_u32(node, "qcom,lpm-to-suspend-delay-ms",
 				&mdwc->lpm_to_suspend_delay);
 	if (ret) {
@@ -3330,7 +3347,6 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 		mdwc->otg_xceiv = dwc->dotg->otg.phy;
 	/* Register with OTG if present */
 	if (mdwc->otg_xceiv) {
-		mdwc->charger.get_linestate = dwc3_msm_get_linestate;
 		/* Skip charger detection for simulator targets */
 		if (!mdwc->charger.skip_chg_detect) {
 			mdwc->charger.start_detection = dwc3_start_chg_det;

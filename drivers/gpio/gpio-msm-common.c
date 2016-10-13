@@ -27,7 +27,6 @@
 #include <linux/err.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
-#inlcude <linux/wakeup_reason.h>
 
 #include <mach/msm_iomap.h>
 #include <mach/gpiomux.h>
@@ -386,9 +385,6 @@ void msm_gpio_show_resume_irq(void)
 			const char *name = "null";
 
 			irq = msm_gpio_to_irq(&msm_gpio.gpio_chip, i);
-
-			log_base_wakeup_reason(irq);
-
 			desc = irq_to_desc(irq);
 			if (desc == NULL)
 				name = "stray irq";

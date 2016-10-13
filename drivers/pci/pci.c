@@ -567,7 +567,7 @@ static int pci_raw_set_power_state(struct pci_dev *dev, pci_power_t state)
 	pci_read_config_word(dev, dev->pm_cap + PCI_PM_CTRL, &pmcsr);
 	dev->current_state = (pmcsr & PCI_PM_CTRL_STATE_MASK);
 	if (dev->current_state != state && printk_ratelimit())
-		dev_info(&dev->dev, "Refused to change power state, "
+		dev_dbg(&dev->dev, "Refused to change power state, "
 			"currently in D%d\n", dev->current_state);
 
 	/*
@@ -990,7 +990,7 @@ static void pci_restore_config_space(struct pci_dev *pdev)
 	if (pdev->hdr_type == PCI_HEADER_TYPE_NORMAL) {
 		pci_restore_config_space_range(pdev, 10, 15, 0);
 		/* Restore BARs before the command register. */
-		pci_restore_config_space_range(pdev, 4, 9, 10);
+		pci_restore_config_space_range(pdev, 4, 9, 0);
 		pci_restore_config_space_range(pdev, 0, 3, 0);
 	} else {
 		pci_restore_config_space_range(pdev, 0, 15, 0);

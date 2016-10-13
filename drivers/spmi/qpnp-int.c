@@ -627,7 +627,6 @@ static int __qpnpint_handle_irq(struct spmi_controller *spmi_ctrl,
 		const char *name = "null";
 
 		log_base_wakeup_reason(irq);
-
 		desc = irq_to_desc(irq);
 		if (desc == NULL)
 			name = "stray irq";

@@ -1197,7 +1197,7 @@ int msm_isp_print_ping_pong_address(struct vfe_device *vfe_dev)
 
 	for (j = 0; j < MAX_NUM_STREAM; j++) {
 		stream_info = &vfe_dev->axi_data.stream_info[j];
-		if (stream_info->state != ACTIVE)
+		if (stream_info->state == AVALIABLE)
 			continue;
 
 		for (pingpong_bit = 0; pingpong_bit < 2; pingpong_bit++) {
@@ -1427,7 +1427,7 @@ static void msm_isp_process_done_buf(struct vfe_device *vfe_dev,
 	} else if (rc == 0) {
 		if (buf->frame_id != frame_id) {
 			struct msm_isp_event_data error_event;
-
+			memset(&error_event, 0, sizeof(error_event));
 			error_event.frame_id =
 				vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id;
 			error_event.u.error_info.err_type =
@@ -2246,6 +2246,7 @@ static int msm_isp_return_empty_buffer(struct vfe_device *vfe_dev,
 		&vfe_dev->axi_data.src_info[frame_src].time_stamp, frame_id,
 		stream_info->runtime_output_format);
 
+	memset(&error_event, 0, sizeof(error_event));
 	error_event.frame_id = frame_id;
 	error_event.timestamp =
 		vfe_dev->axi_data.src_info[frame_src].time_stamp;

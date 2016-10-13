@@ -198,12 +198,8 @@ static void msm_slim_disconn_pipe_port(struct msm_slim_ctrl *dev, u8 pn)
 {
 	struct msm_slim_endp *endpoint = &dev->pipes[pn];
 	struct sps_register_event sps_event;
-	u32 int_port = readl_relaxed(PGD_THIS_EE(PGD_PORT_INT_EN_EEn,
-					dev->ver));
 	writel_relaxed(0, PGD_PORT(PGD_PORT_CFGn, (endpoint->port_b),
 					dev->ver));
-	writel_relaxed((int_port & ~(1 << endpoint->port_b)),
-		PGD_THIS_EE(PGD_PORT_INT_EN_EEn, dev->ver));
 	/* Make sure port register is updated */
 	mb();
 	memset(&sps_event, 0, sizeof(sps_event));
@@ -472,9 +468,15 @@ void msm_slim_tx_msg_return(struct msm_slim_ctrl *dev, int err)
 		}
 		/* reclaim all packets that were delivered out of order */
 		if (idx != dev->tx_head)
-			SLIM_WARN(dev, "SLIM OUT OF ORDER TX:idx:%d, head:%d",
-				idx, dev->tx_head);
-		dev->tx_head = (dev->tx_head + 1) % MSM_TX_BUFS;
+			pr_err("SLIM OUT OF ORDER TX:idx:%d, head:%d", idx,
+								dev->tx_head);
+		while (idx == dev->tx_head) {
+			dev->tx_head = (dev->tx_head + 1) % MSM_TX_BUFS;
+			idx++;
+			if (dev->tx_head == dev->tx_tail ||
+					dev->wr_comp[idx] != NULL)
+				break;
+		}
 	}
 }
 
@@ -585,10 +587,9 @@ msm_slim_rx_msgq_event(struct msm_slim_ctrl *dev, struct sps_event_notify *ev)
 static void
 msm_slim_handle_rx(struct msm_slim_ctrl *dev, struct sps_event_notify *ev)
 {
-	int ret = 0, index = 0;
+	int ret = 0;
 	u32 mc = 0;
 	u32 mt = 0;
-	u32 buffer[10];
 	u8 msg_len = 0;
 
 	if (ev->event_id != SPS_EVENT_EOT) {
@@ -596,24 +597,34 @@ msm_slim_handle_rx(struct msm_slim_ctrl *dev, struct sps_event_notify *ev)
 					__func__, ev->event_id);
 		return;
 	}
+
 	do {
-		ret = msm_slim_rx_msgq_get(dev, buffer, index);
-		if (ret) {
+		ret = msm_slim_rx_msgq_get(dev, dev->current_rx_buf,
+					   dev->current_count);
+		if (ret == -ENODATA) {
+			return;
+		} else if (ret) {
 			SLIM_ERR(dev, "rx_msgq_get() failed 0x%x\n",
 								ret);
 			return;
 		}
 
 		/* Traverse first byte of message for message length */
-		if (index++ == 0) {
-			msg_len = *buffer & 0x1F;
-			mt = (buffer[0] >> 5) & 0x7;
-			mc = (buffer[0] >> 8) & 0xff;
+		if (dev->current_count++ == 0) {
+			msg_len = *(dev->current_rx_buf) & 0x1F;
+			mt = (*(dev->current_rx_buf) >> 5) & 0x7;
+			mc = (*(dev->current_rx_buf) >> 8) & 0xff;
 			dev_dbg(dev->dev, "MC: %x, MT: %x\n", mc, mt);
 		}
+
 		msg_len = (msg_len < 4) ? 0 : (msg_len - 4);
-	} while (msg_len);
-	dev->rx_slim(dev, (u8 *)buffer);
+
+		if (!msg_len) {
+			dev->rx_slim(dev, (u8 *)dev->current_rx_buf);
+			dev->current_count = 0;
+		}
+
+	} while (1);
 }
 
 static void msm_slim_rx_msgq_cb(struct sps_event_notify *notify)
@@ -662,8 +673,12 @@ int msm_slim_rx_msgq_get(struct msm_slim_ctrl *dev, u32 *data, int offset)
 
 	pr_debug("iovec = (0x%x 0x%x 0x%x)\n",
 		iovec.addr, iovec.size, iovec.flags);
-	BUG_ON(iovec.addr < mem->phys_base);
-	BUG_ON(iovec.addr >= mem->phys_base + mem->size);
+
+	/* no more descriptors */
+	if (!ret && (iovec.addr == 0) && (iovec.size == 0)) {
+		ret = -ENODATA;
+		goto err_exit;
+	}
 
 	/* Calculate buffer index */
 	index = (iovec.addr - mem->phys_base) / 4;

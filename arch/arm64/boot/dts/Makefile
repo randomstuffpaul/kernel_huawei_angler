@@ -7,8 +7,6 @@ targets += dtbs
 #Not working due to symlink in arch/arm64/boot/dts
 #subdir- := qcom
 
-targets += $(DTB_LIST)
-
 dtbs: $(addprefix $(obj)/, $(DTB_LIST))
 
 clean-files := dts/*.dtb *.dtb

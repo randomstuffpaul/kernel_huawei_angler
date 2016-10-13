@@ -7006,29 +7006,6 @@ struct afe_spkr_prot_calib_get_resp {
 } __packed;
 
 
-#define AFE_MODULE_DSM_RX                               0x10001062
-#define AFE_MODULE_DSM_TX                               0x10001063
-
-#define AFE_PARAM_ID_ENABLE_DSM_TX                      0x10001064
-#define AFE_PARAM_ID_ENABLE_DSM_RX                      0x10001065
-#define AFE_PARAM_ID_DSM_RX_CFG                         0x10001066
-#define AFE_PARAM_ID_DSM_TX_CFG                         0x10001067
-
-struct afe_dsm_set_command {
-	struct apr_hdr hdr;
-	struct afe_port_cmd_set_param_v2 param;
-	struct afe_port_param_data_v2 pdata;
-	int32_t payload[0];
-} __packed;
-
-struct afe_dsm_get_command {
-	struct apr_hdr hdr;
-	struct afe_port_cmd_get_param_v2 param;
-	struct afe_port_param_data_v2 pdata;
-	int32_t payload[0];
-} __packed;
-
-
 /* SRS TRUMEDIA start */
 /* topology */
 #define SRS_TRUMEDIA_TOPOLOGY_ID			0x00010D90
@@ -7353,7 +7330,6 @@ struct afe_param_id_clip_bank_sel {
 #define Q6AFE_LPASS_OSR_CLK_DISABLE		     0x0
 
 /* Supported Bit clock values */
-#define Q6AFE_LPASS_IBIT_CLK_12_P288_MHZ	0xBB8000
 #define Q6AFE_LPASS_IBIT_CLK_8_P192_MHZ		0x7D0000
 #define Q6AFE_LPASS_IBIT_CLK_6_P144_MHZ		0x5DC000
 #define Q6AFE_LPASS_IBIT_CLK_4_P096_MHZ		0x3E8000

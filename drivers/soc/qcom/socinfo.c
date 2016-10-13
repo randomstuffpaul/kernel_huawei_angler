@@ -44,8 +44,6 @@
 #define SMEM_IMAGE_VERSION_OEM_OFFSET 96
 #define SMEM_IMAGE_VERSION_PARTITION_APPS 10
 
-#define HW_BOARDID_BEGIN_NUM 8000
-
 enum {
 	HW_PLATFORM_UNKNOWN = 0,
 	HW_PLATFORM_SURF    = 1,
@@ -696,11 +694,6 @@ msm_get_hw_platform(struct device *dev,
 	uint32_t hw_type;
 	hw_type = socinfo_get_platform_type();
 
-	if(hw_type >= HW_BOARDID_BEGIN_NUM) {
-		hw_type = HW_PLATFORM_MTP;
-	}else if(hw_type >= HW_PLATFORM_INVALID) {
-		hw_type = HW_PLATFORM_UNKNOWN;
-	}
 	return snprintf(buf, PAGE_SIZE, "%-.32s\n",
 			hw_platform[hw_type]);
 }

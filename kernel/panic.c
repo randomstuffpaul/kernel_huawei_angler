@@ -27,6 +27,10 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/exception.h>
 
+#ifdef CONFIG_LGE_HANDLE_PANIC
+#include <soc/qcom/lge/lge_handle_panic.h>
+#endif
+
 #define PANIC_TIMER_STEP 100
 #define PANIC_BLINK_SPD 18
 
@@ -135,12 +139,8 @@ void panic(const char *fmt, ...)
 
 	kmsg_dump(KMSG_DUMP_PANIC);
 
-	/* print last_kmsg even after console suspend */
-	if (is_console_suspended())
-		resume_console();
-
-	if (is_console_locked())
-		console_unlock();
+        /* print last_kmsg even after console suspend */
+	resume_console();
 
 	atomic_notifier_call_chain(&panic_notifier_list, 0, buf);
 

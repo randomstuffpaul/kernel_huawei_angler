@@ -228,6 +228,15 @@ config SENSORS_LIS3DH
 	  To compile this driver as a module, choose M here: the
 	  module will be called lis3dh_acc.
 
+config STMVL6180
+	tristate "STMVL6180"
+	default y
+	help
+	  Say Y here if you want to use STMicroelectronics proximity sensor
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called stmvl6180.
+
 config INPUT_APANEL
 	tristate "Fujitsu Lifebook Application Panel buttons"
 	depends on X86 && I2C && LEDS_CLASS
@@ -863,19 +872,9 @@ config SENSORS_ISL29044A
 	help
 	 This option enables support for the INTERSIL ISL29044A P/L sensor.
 
-config LASER_STMVL6180
-	tristate "STM VL6180 Proximity support"
-	depends on I2C
-	help
-	  Say Y here if you want to use STMicroelectronics's proximity sensor
-	  through I2C interface.
+config INPUT_FPC1020
+       tristate "FPC_BTP fingerprint sensor support"
+       depends on SPI_MASTER
 
-	  To compile this driver as a module, choose M here: the
-	  module will be called stmvl6180.
-
-config RF_DETECT
-	tristate "Adjusted RF by monitor the change of gpio"
-	help
-	 This option enables support for adjusting RF.
 endif
 

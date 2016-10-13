@@ -22,7 +22,6 @@
 #include <linux/clk.h>
 #include <linux/err.h>
 #include <linux/of.h>
-#include <linux/proc_fs.h>
 #include <linux/regulator/consumer.h>
 #include <linux/interrupt.h>
 #include <linux/dma-mapping.h>
@@ -32,6 +31,9 @@
 #include <soc/qcom/ramdump.h>
 #include <soc/qcom/smem.h>
 #include <soc/qcom/smsm.h>
+#ifdef CONFIG_LGE_HANDLE_PANIC
+#include <soc/qcom/lge/lge_handle_panic.h>
+#endif
 
 #include "peripheral-loader.h"
 #include "pil-q6v5.h"
@@ -43,9 +45,6 @@
 #define STOP_ACK_TIMEOUT_MS	1000
 
 #define subsys_to_drv(d) container_of(d, struct modem_data, subsys_desc)
-
-static char modem_reset_reason[MAX_SSR_REASON_LEN];
-static u32  modem_reset_count = 0;
 
 static void log_modem_sfr(void)
 {
@@ -66,8 +65,9 @@ static void log_modem_sfr(void)
 	strlcpy(reason, smem_reason, min(size, MAX_SSR_REASON_LEN));
 	pr_err("modem subsystem failure reason: %s.\n", reason);
 
-	strlcpy(modem_reset_reason, reason, min(size, MAX_SSR_REASON_LEN));
-	modem_reset_count++;
+#ifdef CONFIG_LGE_HANDLE_PANIC
+	lge_check_crash_skiped(reason);
+#endif
 
 	smem_reason[0] = '\0';
 	wmb();
@@ -405,10 +405,6 @@ static struct platform_driver pil_mss_driver = {
 
 static int __init pil_mss_init(void)
 {
-	memset(modem_reset_reason, 0, sizeof(modem_reset_reason));
-	snprintf(modem_reset_reason, MAX_SSR_REASON_LEN - 1,
-	        "%s", "No modem crash happened.");
-
 	return platform_driver_register(&pil_mss_driver);
 }
 module_init(pil_mss_init);
@@ -418,36 +414,6 @@ static void __exit pil_mss_exit(void)
 	platform_driver_unregister(&pil_mss_driver);
 }
 module_exit(pil_mss_exit);
-
-/*
- *   /porc/modem_exception shows the times of modem crash and reason.
- */
-
-static int modem_exception_proc_show(struct seq_file *m, void *v)
-{
-	seq_printf(m, "[%d] %s\n", modem_reset_count, modem_reset_reason);
-	return 0;
-}
-
-static int modem_exception_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, modem_exception_proc_show, NULL);
-}
-
-static const struct file_operations modem_exception_proc_fops = {
-	.open		= modem_exception_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-
-static int __init proc_modem_exception_init(void)
-{
-	proc_create("modem_exception", 0, NULL, &modem_exception_proc_fops);
-	return 0;
-}
-module_init(proc_modem_exception_init);
-
 
 MODULE_DESCRIPTION("Support for booting modem subsystems with QDSP6v5 Hexagon processors");
 MODULE_LICENSE("GPL v2");
