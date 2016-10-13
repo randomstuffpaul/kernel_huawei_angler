@@ -171,7 +171,6 @@
 #define AFVC_IRQ_BIT				BIT(7)
 #define CHG_CONFIG_MASK				SMB1351_MASK(6, 4)
 #define LOW_BATT_VOLTAGE_DET_TH_MASK		SMB1351_MASK(3, 0)
-#define CHG_CONFIG				0
 
 #define VARIOUS_FUNC_3_REG			0x11
 #define SAFETY_TIMER_EN_MASK			SMB1351_MASK(7, 6)
@@ -204,7 +203,6 @@
 #define SDP_LOW_BATT_FORCE_USB5_OVER_USB1_BIT	BIT(4)
 #define OTG_HICCUP_MODE_BIT			BIT(2)
 #define INPUT_CURRENT_LIMIT_MASK		SMB1351_MASK(1, 0)
-#define ADAPTER_CONFIG		0
 
 #define CHARGER_I2C_CTRL_REG			0x15
 #define FULLON_MODE_EN_BIT			BIT(7)
@@ -1189,16 +1187,13 @@ static int smb1351_set_usb_chg_current(struct smb1351_charger *chip,
 	} else if (current_ma == USB3_MIN_CURRENT_MA) {
 		/* USB 3.0 - 150mA */
 		reg = CMD_USB_3_MODE | CMD_USB_100_MODE;
-	/*
-	 * remove code of USB2.0 and USB3.0, if current_ma >= 500,
-	 * use HC mode. if thermal-engine set 1A for HVDCP, we will
-	 * set 50% of 1A (0.5A) for smb1351. 9V 0.5A charging must
-	 * use HC (high current) mode, so remove the code of USB2.0
-	 * and USB3.0, hvdcp max input current is 1.8A, for parallel charging
-	 * chip: smb1351, set 50% of 1.8A(900ma) as input current
-	 * note: smb1351 do not have 900ma, so use 700ma
-	 */
-	} else if (current_ma >= USB2_MAX_CURRENT_MA) {
+	} else if (current_ma == USB2_MAX_CURRENT_MA) {
+		/* USB 2.0 - 500mA */
+		reg = CMD_USB_2_MODE | CMD_USB_500_MODE;
+	} else if (current_ma == USB3_MAX_CURRENT_MA) {
+		/* USB 3.0 - 900mA */
+		reg = CMD_USB_3_MODE | CMD_USB_500_MODE;
+	} else if (current_ma > USB2_MAX_CURRENT_MA) {
 		/* HC mode  - if none of the above */
 		reg = CMD_USB_AC_MODE;
 
@@ -1215,8 +1210,6 @@ static int smb1351_set_usb_chg_current(struct smb1351_charger *chip,
 			pr_err("Couldn't set input mA rc=%d\n", rc);
 			return rc;
 		}
-		/* Record the real current set to register */
-		current_ma = usb_chg_current[i];
 	}
 	/* control input current mode by command */
 	reg |= CMD_INPUT_CURRENT_MODE_CMD;
@@ -1227,12 +1220,6 @@ static int smb1351_set_usb_chg_current(struct smb1351_charger *chip,
 		pr_err("Couldn't set charging mode rc = %d\n", rc);
 		return rc;
 	}
-
-	/*
-	 * Assign the usb_psy_ma as current_ma, then it can get the real current
-	 * set to register by getting property POWER_SUPPLY_PROP_CURRENT_MAX.
-	 */
-	chip->usb_psy_ma = current_ma;
 
 	/* unset the suspend bit here */
 	smb1351_usb_suspend(chip, CURRENT, false);
@@ -1378,29 +1365,6 @@ static int smb1351_parallel_set_chg_present(struct smb1351_charger *chip,
 		rc = smb1351_enable_volatile_writes(chip);
 		if (rc) {
 			pr_err("Couldn't configure for volatile rc = %d\n", rc);
-			return rc;
-		}
-
-		/* set chg_config: 5V only and disable HVDCP */
-		reg = CHG_CONFIG;
-		rc = smb1351_masked_write(chip, FLEXCHARGER_REG, CHG_CONFIG_MASK, reg);
-		if (rc) {
-			pr_err("Couldn't set FLEXCHARGER_REG rc=%d\n",  rc);
-			return rc;
-		}
-
-		reg = ADAPTER_CONFIG;
-		rc = smb1351_masked_write(chip, OTG_MODE_POWER_OPTIONS_REG,
-				ADAPTER_CONFIG_MASK, reg);
-		if (rc) {
-			pr_err("Couldn't set OTG_MODE_POWER_OPTIONS_REG rc=%d\n", rc);
-			return rc;
-		}
-
-		rc = smb1351_masked_write(chip, HVDCP_BATT_MISSING_CTRL_REG,
-				HVDCP_EN_BIT, 0);
-		if (rc) {
-			pr_err("Couldn't set HVDCP_BATT_MISSING_CTRL_REG rc=%d\n", rc);
 			return rc;
 		}
 

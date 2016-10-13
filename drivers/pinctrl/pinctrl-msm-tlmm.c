@@ -21,6 +21,7 @@
 #include <linux/pinctrl/pinconf-generic.h>
 #include <linux/spinlock.h>
 #include <linux/syscore_ops.h>
+#include <linux/irqchip/qpnp-int.h>
 #include <linux/wakeup_reason.h>
 #include "pinctrl-msm.h"
 
@@ -167,8 +168,6 @@
 #define TLMMV4_QDSD_PULL_OFFSET			0x3
 #define TLMMV4_QDSD_CONFIG_WIDTH		0x5
 #define TLMMV4_QDSD_DRV_MASK			0x7
-
-extern int msm_show_resume_irq_mask;
 
 struct msm_sdc_regs {
 	unsigned long pull_mask;
@@ -761,6 +760,21 @@ static void msm_tlmm_set_intr_cfg_type(struct msm_tlmm_irq_chip *ic,
 	udelay(5);
 }
 
+static int msm_tlmm_gp_show_resume_irq(struct msm_tlmm_irq_chip *ic)
+{
+	unsigned long i;
+
+	for_each_set_bit(i, ic->wake_irqs, ic->num_irqs) {
+		if (msm_tlmm_get_intr_status(ic, i)) {
+			int irq = gpio_to_irq((unsigned int)i);
+
+			log_base_wakeup_reason(irq);
+		}
+	}
+
+	return 0;
+}
+
 static irqreturn_t msm_tlmm_gp_handle_irq(int irq, struct msm_tlmm_irq_chip *ic)
 {
 	unsigned long i;
@@ -952,39 +966,6 @@ static int msm_tlmm_gp_irq_suspend(void)
 	return 0;
 }
 
-void msm_tlmm_show_gp_irq_resume(void)
-{
-	unsigned long irq_flags;
-	int i, irq, intstat;
-	struct msm_tlmm_irq_chip *ic = &msm_tlmm_gp_irq;
-        int num_irqs = ic->num_irqs;
-
-	if (!msm_show_resume_irq_mask)
-		return;
-
-	spin_lock_irqsave(&ic->irq_lock, irq_flags);
-	for_each_set_bit(i, ic->wake_irqs, num_irqs) {
-		intstat = msm_tlmm_get_intr_status(ic, i);
-		if (intstat) {
-			struct irq_desc *desc;
-			const char *name = "null";
-
-			irq = irq_create_mapping(ic->domain, i);
-
-			log_base_wakeup_reason(irq);
-
-			desc = irq_to_desc(irq);
-			if (desc != NULL &&
-				desc->action && desc->action->name) {
-				name = desc->action->name;
-				pr_warning("%s: %d triggered %s\n",
-						__func__, irq, name);
-			}
-		}
-	}
-	spin_unlock_irqrestore(&ic->irq_lock, irq_flags);
-}
-
 static void msm_tlmm_gp_irq_resume(void)
 {
 	unsigned long irq_flags;
@@ -992,7 +973,8 @@ static void msm_tlmm_gp_irq_resume(void)
 	struct msm_tlmm_irq_chip *ic = &msm_tlmm_gp_irq;
 	int num_irqs = ic->num_irqs;
 
-	msm_tlmm_show_gp_irq_resume();
+	if (qpnpint_show_resume_irq())
+		msm_tlmm_gp_show_resume_irq(ic);
 
 	spin_lock_irqsave(&ic->irq_lock, irq_flags);
 	for_each_set_bit(i, ic->wake_irqs, num_irqs)

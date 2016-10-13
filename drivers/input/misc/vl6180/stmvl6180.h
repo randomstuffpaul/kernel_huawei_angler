@@ -1,7 +1,7 @@
 /*
- *  stmvl6180.h - Linux kernel modules for STM VL6180 FlightSense Time-of-Flight sensor
+ *  stmvl6180.h - Linux kernel modules for STM VL6180 FlightSense TOF sensor
  *
- *  Copyright (C) 2014 STMicroelectronics Imaging Division
+ *  Copyright (C) 2015 STMicroelectronics Imaging Division
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -28,36 +28,36 @@
 
 #define DRIVER_VERSION		"2.0.5"
 #define I2C_M_WR			0x00
-//#define INT_POLLING_DELAY     20
+/* #define INT_POLLING_DELAY	20 */
 #define RESULT_REG_COUNT	56
 
-//if don't want to have output from vl6180_dbgmsg, comment out #DEBUG macro
-#define DEBUG
-//#define vl6180_dbgmsg(str, args...) pr_debug("%s: " str, __func__, ##args)
-#define vl6180_dbgmsg(str, args...) printk("%s: " str, __func__, ##args)
-#define vl6180_errmsg(str, args...) printk(KERN_ERR "%s: " str, __func__, ##args)
+#define vl6180_dbgmsg(str, args...) pr_debug("%s: " str, __func__, ##args)
+#define vl6180_errmsg(str, args...) pr_err("%s: " str, __func__, ##args)
 
-/**
+#define VL6180_VDD_MIN      2600000
+#define VL6180_VDD_MAX      3000000
+
+/*
  * VL6180 register addresses
  */
 /* Device Registers */
-#define VL6180_MODEL_ID_REG			    0x0000
-#define VL6180_MODEL_REV_MAJOR_REG		    0x0001
+#define VL6180_MODEL_ID_REG					0x0000
+#define VL6180_MODEL_REV_MAJOR_REG			0x0001
 #define VL6180_MODEL_REV_MINOR_REG		    0x0002
 #define VL6180_MODULE_REV_MAJOR_REG		    0x0003
 #define VL6180_MODULE_REV_MINOR_REG		    0x0004
 
 #define VL6180_REVISION_ID_REG			    0x0005
 #define VL6180_REVISION_ID_REG_BYTES		1
-#define VL6180_DATE_HI_REG				0x0006
+#define VL6180_DATE_HI_REG					0x0006
 #define VL6180_DATE_HI_REG_BYTES		    1
-#define VL6180_DATE_LO_REG				0x0007
-#define VL6180_DATE_LO_REG_BYTES		    1
-#define VL6180_TIME_REG				    0x0008
+#define VL6180_DATE_LO_REG					0x0007
+#define VL6180_DATE_LO_REG_BYTES			1
+#define VL6180_TIME_REG						0x0008
 #define VL6180_TIME_REG_BYTES			    2
-#define VL6180_CODE_REG				    0x000a
+#define VL6180_CODE_REG						0x000a
 #define VL6180_CODE_REG_BYTES			    1
-#define VL6180_FIRMWARE_REVISION_ID_REG		    0x000b
+#define VL6180_FIRMWARE_REVISION_ID_REG				0x000b
 #define VL6180_FIRMWARE_REVISION_ID_REG_BYTES	    1
 
 /* Result Registers */
@@ -96,7 +96,13 @@ struct stmvl6180_register {
 	uint32_t reg_data;
 	int32_t status;
 };
- 
+
+/* calibration file type */
+struct stmvl6180_cal_file_t {
+	int16_t value;
+	unsigned int file_opened;
+};
+
 /*
  *  driver data structs
  */
@@ -131,13 +137,22 @@ struct stmvl6180_data {
 	/* Range Result Register Data */
 	uint8_t  ResultBuffer[RESULT_REG_COUNT];
 
-	/* delay time */
-	uint8_t delay_ms;	// work handler delay time in miniseconds
+	/* delay time in miniseconds*/
+	uint8_t delay_ms;
 
 	struct mutex work_mutex;
 
 	/* Debug */
 	unsigned int enableDebug;
+
+	/* function to start/stop tof */
+	int (*tof_start)(struct stmvl6180_data *data,
+			uint8_t scaling, init_mode_e mode);
+	int (*tof_stop)(struct stmvl6180_data *data);
+
+	/* calibration files*/
+	struct stmvl6180_cal_file_t offset_buf;
+	struct stmvl6180_cal_file_t xtalk_buf;
 };
 
 /*

@@ -25,9 +25,13 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ********************************************************************************/
+/*
+ * $Date: 2015-01-08 14:30:24 +0100 (Thu, 08 Jan 2015) $
+ * $Revision: 2039 $
+ */
 
-#ifndef VL6180x_PLATFORM_H
-#define VL6180x_PLATFORM_H
+#ifndef VL6180x_PLATFORM
+#define VL6180x_PLATFORM
 
 
 #include <linux/delay.h>
@@ -219,7 +223,7 @@ void VL6180x_PollDelay(VL6180xDev_t dev); /* usualy best implemanted a a real fu
 
 #if VL6180X_LOG_ENABLE
 #include <linux/module.h>
-#define LOG_GET_TIME() (int)0	/* add your code here expect to be an integer native (%d) type  value  */
+#define LOG_GET_TIME() (int)0
 
 /**
  * @brief Log function start.
@@ -300,7 +304,7 @@ void VL6180x_PollDelay(VL6180xDev_t dev); /* usualy best implemanted a a real fu
     #define VL6180x_ErrLog(...) (void)0
 #endif /* else */
 
-#endif  /* VL6180x_PLATFORM_H */
+#endif  /* VL6180x_PLATFORM */
 
 
 

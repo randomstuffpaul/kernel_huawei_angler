@@ -20,8 +20,6 @@ fw-external-y := $(subst ",,$(CONFIG_EXTRA_FIRMWARE))
 # accurate. In the latter case it doesn't matter -- it'll use $(fw-shipped-all).
 # But be aware that the config file might not be included at all.
 
-fw-shipped-y += cyttsp4_fw_mate2.bin
-
 ifdef CONFIG_ACENIC_OMIT_TIGON_I
 acenic-objs := acenic/tg2.bin
 fw-shipped- += acenic/tg1.bin
@@ -137,8 +135,6 @@ fw-shipped-$(CONFIG_USB_SERIAL_XIRCOM) += keyspan_pda/xircom_pgs.fw
 fw-shipped-$(CONFIG_USB_VICAM) += vicam/firmware.fw
 fw-shipped-$(CONFIG_VIDEO_CPIA2) += cpia2/stv0672_vp4.bin
 fw-shipped-$(CONFIG_YAM) += yam/1200.bin yam/9600.bin
-fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX25_FW_UPDATE) += synaptics/startup_fw_update.img
-fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX25_FW_UPDATE) += synaptics/startup_fw_update-fhd.img
 
 fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m) $(fw-shipped-)
 

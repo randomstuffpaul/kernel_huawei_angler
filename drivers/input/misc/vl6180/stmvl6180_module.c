@@ -85,14 +85,11 @@ static struct stmvl6180_module_fn_t stmvl6180_module_func_tbl = {
 
 #define CALIBRATION_FILE 1
 #ifdef CALIBRATION_FILE
-
-#define CAL_FILE_OFFSET "/persist/data/st_offset"
-#define CAL_FILE_XTALK "/persist/data/st_xtalk"
-#define CAL_FILE_MODE 0640
-
-int8_t offset_calib = 0;
-int16_t xtalk_calib = 0;
+int8_t offset_calib;
+int16_t xtalk_calib;
 #endif
+
+#define XTALK_CALIBRATION_DEFAULT 0
 
 static long stmvl6180_ioctl(struct file *file,
 							unsigned int cmd,
@@ -111,118 +108,144 @@ static void stmvl6180_read_calibration_file(void)
 	mm_segment_t fs;
 	int i, is_sign = 0;
 
-	f = filp_open(CAL_FILE_OFFSET, O_RDONLY, CAL_FILE_MODE);
-	if (IS_ERR_OR_NULL(f)) {
-		pr_err("no offset calibration file exist! %ld\n", (long)f);
+	if(gp_vl6180_data->offset_buf.file_opened == true) {
+		vl6180_dbgmsg("offset_calib as %d\n",
+				gp_vl6180_data->offset_buf.value);
+		VL6180x_SetOffsetCalibrationData(vl6180x_dev,
+				gp_vl6180_data->offset_buf.value);
 	} else {
-		fs = get_fs();
-		set_fs(KERNEL_DS);
-		/* init the buffer with 0 */
-		for (i = 0; i < 8; i++)
-			buf[i] = 0;
-		f->f_pos = 0;
-		vfs_read(f, buf, 8, &f->f_pos);
-		pr_info("offset as:%s, buf[0]:%c\n", buf, buf[0]);
-		offset_calib = 0;
-		for (i = 0; i < 8; i++) {
-			if (i == 0 && buf[0] == '-')
-				is_sign = 1;
-			else if (buf[i] >= '0' && buf[i] <= '9')
-				offset_calib =
-				    offset_calib * 10 + (buf[i] - '0');
-			else
-				break;
+		f = filp_open("/persist/calibration/offset", O_RDONLY, 0);
+		if (f != NULL && !IS_ERR(f) && f->f_dentry != NULL) {
+			fs = get_fs();
+			set_fs(get_ds());
+			/* init the buffer with 0 */
+			for (i = 0; i < 8; i++)
+				buf[i] = 0;
+			f->f_op->read(f, buf, 8, &f->f_pos);
+			set_fs(fs);
+			vl6180_dbgmsg("offset as:%s, buf[0]:%c\n", buf, buf[0]);
+			offset_calib = 0;
+			for (i = 0; i < 8; i++) {
+				if (i == 0 && buf[0] == '-')
+					is_sign = 1;
+				else if (buf[i] >= '0' && buf[i] <= '9')
+					offset_calib = offset_calib * 10 + (buf[i] - '0');
+				else
+					break;
+			}
+			if (is_sign == 1)
+				offset_calib = -1 * offset_calib;
+			vl6180_dbgmsg("file open offset_calib as %d\n", offset_calib);
+			gp_vl6180_data->offset_buf.file_opened = true;
+			gp_vl6180_data->offset_buf.value = offset_calib;
+			VL6180x_SetOffsetCalibrationData(vl6180x_dev, offset_calib);
+			filp_close(f, NULL);
+		} else {
+			gp_vl6180_data->offset_buf.file_opened = true;
+			gp_vl6180_data->offset_buf.value = 0;
+			vl6180_errmsg("no offset calibration file exist!\n");
 		}
-		if (is_sign == 1)
-			offset_calib = -offset_calib;
-		pr_info("offset_calib as %d\n", offset_calib);
-		VL6180x_SetOffsetCalibrationData(vl6180x_dev, offset_calib);
-		filp_close(f, NULL);
-		set_fs(fs);
 	}
-
 	is_sign = 0;
-	f = filp_open(CAL_FILE_XTALK, O_RDONLY, CAL_FILE_MODE);
-	if (IS_ERR_OR_NULL(f)) {
-		pr_info("no xtalk calibration file exist! %ld\n", (long)f);
-	} else {
-		fs = get_fs();
-		set_fs(KERNEL_DS);
-		/* init the buffer with 0 */
-		for (i = 0; i < 8; i++)
-			buf[i] = 0;
-		f->f_pos = 0;
-		vfs_read(f, buf, 8, &f->f_pos);
-		pr_info("xtalk as:%s, buf[0]:%c\n", buf, buf[0]);
-		xtalk_calib = 0;
-		for (i = 0; i < 8; i++) {
-			if (i == 0 && buf[0] == '-')
-				is_sign = 1;
-			else if (buf[i] >= '0' && buf[i] <= '9')
-				xtalk_calib = xtalk_calib * 10 + (buf[i] - '0');
-			else
-				break;
-		}
-		if (is_sign == 1)
-			xtalk_calib = -xtalk_calib;
-		pr_info("xtalk_calib as %d\n", xtalk_calib);
-		if ((xtalk_calib+13) < 64 )
-			VL6180x_WrWord(vl6180x_dev, SYSRANGE_RANGE_IGNORE_THRESHOLD, 64); //0.5Mcps
+	if(gp_vl6180_data->xtalk_buf.file_opened == true) {
+		vl6180_dbgmsg("xtalk_calib as %d\n",
+				gp_vl6180_data->xtalk_buf.value);
+		/* set up threshold ignore */
+		if ((gp_vl6180_data->xtalk_buf.value+13) < 64 )
+			VL6180x_WrWord(vl6180x_dev, SYSRANGE_RANGE_IGNORE_THRESHOLD, 64); /* 0.5Mcps */
 		else
-			VL6180x_WrWord(vl6180x_dev, SYSRANGE_RANGE_IGNORE_THRESHOLD, (xtalk_calib+13)); //+0.1Mcps
-		VL6180x_WrByte(vl6180x_dev, SYSRANGE_RANGE_IGNORE_VALID_HEIGHT, 255);
+			VL6180x_WrWord(vl6180x_dev, SYSRANGE_RANGE_IGNORE_THRESHOLD, (gp_vl6180_data->xtalk_buf.value+13)); /* +0.1Mcps */
+		VL6180x_WrByte(vl6180x_dev, SYSRANGE_RANGE_IGNORE_VALID_HEIGHT, 100);
 		VL6180x_UpdateByte(vl6180x_dev, SYSRANGE_RANGE_CHECK_ENABLES,
 						~RANGE_CHECK_RANGE_ENABLE_MASK, RANGE_CHECK_RANGE_ENABLE_MASK);
-		VL6180x_SetXTalkCompensationRate(vl6180x_dev, xtalk_calib);
-		filp_close(f, NULL);
-		set_fs(fs);
+		/* setup xtalk compensation rate */
+		VL6180x_SetXTalkCompensationRate(vl6180x_dev, gp_vl6180_data->xtalk_buf.value);
+	} else {
+		f = filp_open("/persist/calibration/xtalk", O_RDONLY, 0);
+		if (f != NULL && !IS_ERR(f) && f->f_dentry != NULL) {
+			fs = get_fs();
+			set_fs(get_ds());
+			/* init the buffer with 0 */
+			for (i = 0; i < 8; i++)
+				buf[i] = 0;
+			f->f_op->read(f, buf, 8, &f->f_pos);
+			set_fs(fs);
+			vl6180_dbgmsg("xtalk as:%s, buf[0]:%c\n", buf, buf[0]);
+			xtalk_calib = 0;
+			for (i = 0; i < 8; i++) {
+				if (i == 0 && buf[0] == '-')
+					is_sign = 1;
+				else if (buf[i] >= '0' && buf[i] <= '9')
+					xtalk_calib = xtalk_calib * 10 + (buf[i] - '0');
+				else
+					break;
+			}
+			if (is_sign == 1)
+				xtalk_calib = -1 * xtalk_calib;
+			vl6180_dbgmsg("file open xtalk_calib as %d\n", xtalk_calib);
+			gp_vl6180_data->xtalk_buf.file_opened = true;
+			gp_vl6180_data->xtalk_buf.value = xtalk_calib;
+			/* set up threshold ignore */
+			if ((xtalk_calib+13) < 64 )
+				VL6180x_WrWord(vl6180x_dev, SYSRANGE_RANGE_IGNORE_THRESHOLD, 64); /* 0.5Mcps */
+			else
+				VL6180x_WrWord(vl6180x_dev, SYSRANGE_RANGE_IGNORE_THRESHOLD, (xtalk_calib+13)); /* +0.1Mcps */
+			VL6180x_WrByte(vl6180x_dev, SYSRANGE_RANGE_IGNORE_VALID_HEIGHT, 100);
+			VL6180x_UpdateByte(vl6180x_dev, SYSRANGE_RANGE_CHECK_ENABLES,
+							~RANGE_CHECK_RANGE_ENABLE_MASK, RANGE_CHECK_RANGE_ENABLE_MASK);
+			/* setup xtalk compensation rate */
+			VL6180x_SetXTalkCompensationRate(vl6180x_dev, xtalk_calib);
+			filp_close(f, NULL);
+		} else {
+			gp_vl6180_data->xtalk_buf.file_opened = true;
+			gp_vl6180_data->xtalk_buf.value = XTALK_CALIBRATION_DEFAULT;
+			vl6180_errmsg("no xtalk calibration file exist!\n");
+		}
 	}
-
 	return;
 }
 
 static void stmvl6180_write_offset_calibration_file(void)
 {
-	struct file *f = NULL;
+	struct file *f;
 	char buf[8];
 	mm_segment_t fs;
 
-	f = filp_open(CAL_FILE_OFFSET, O_CREAT | O_TRUNC | O_RDWR,
-		      CAL_FILE_MODE);
-	if (IS_ERR_OR_NULL(f)) {
-		pr_err("fail open calibration file, %ld\n", (long)f);
+	f = filp_open("/persist/calibration/offset", O_RDWR|O_CREAT, 0644);
+	if (IS_ERR(f)) {
+		vl6180_errmsg("%ld\n", PTR_ERR(f));
 		return;
 	}
-	fs = get_fs();
-	set_fs(KERNEL_DS);
-	f->f_pos = 0;
-	sprintf(buf, "%d", offset_calib);
-	vfs_write(f, buf, 8, &f->f_pos);
-	filp_close(f, NULL);
-	set_fs(fs);
 
+	fs = get_fs();
+	set_fs(get_ds());
+	sprintf(buf, "%d", offset_calib);
+	vl6180_dbgmsg("write offset as:%s, buf[0]:%c\n", buf, buf[0]);
+	f->f_op->write(f, buf, 8, &f->f_pos);
+	set_fs(fs);
+	filp_close(f, NULL);
 	return;
 }
 
 static void stmvl6180_write_xtalk_calibration_file(void)
 {
-	struct file *f = NULL;
+	struct file *f;
 	char buf[8];
 	mm_segment_t fs;
 
-	f = filp_open(CAL_FILE_XTALK, O_CREAT | O_TRUNC | O_RDWR,
-		      CAL_FILE_MODE);
-	if (IS_ERR_OR_NULL(f)) {
-		pr_err("fail open xtalk file, %ld\n", (long)f);
+	f = filp_open("/persist/calibration/xtalk", O_RDWR|O_CREAT, 0644);
+	if (IS_ERR(f)) {
+		vl6180_errmsg("%ld\n", PTR_ERR(f));
 		return;
 	}
+
 	fs = get_fs();
-	set_fs(KERNEL_DS);
-	f->f_pos = 0;
+	set_fs(get_ds());
 	sprintf(buf, "%d", xtalk_calib);
-	vfs_write(f, buf, 8, &f->f_pos);
-	filp_close(f, NULL);
+	vl6180_dbgmsg("write xtalk as:%s, buf[0]:%c\n", buf, buf[0]);
+	f->f_op->write(f, buf, 8, &f->f_pos);
 	set_fs(fs);
+	filp_close(f, NULL);
 
 	return;
 }
@@ -253,14 +276,14 @@ static void stmvl6180_ps_read_measurement(void)
 	input_sync(data->input_dev_ps);
 
 	if (data->enableDebug)
-		pr_info
-		    ("range:%d, signalrate_mcps:%d, error:0x%x,rtnsgnrate:%u, rtnambrate:%u,rtnconvtime:%u\n",
+		vl6180_errmsg("range:%d, signalrate_mcps:%d, error:0x%x,rtnsgnrate:%u, rtnambrate:%u,rtnconvtime:%u\n",
 			data->rangeData.range_mm,
 			data->rangeData.signalRate_mcps,
 			data->rangeData.errorStatus,
 			data->rangeData.rtnRate,
 			data->rangeData.rtnAmbRate,
 			data->rangeData.rtnConvTime);
+
 }
 
 static void stmvl6180_cancel_handler(struct stmvl6180_data *data)
@@ -304,13 +327,17 @@ static void stmvl6180_work_handler(struct work_struct *work)
 	struct stmvl6180_data *data = gp_vl6180_data;
 	int ret = 0;
 	uint8_t to_startPS = 0;
+	uint8_t range_status=0, range_start=0;
+
 	mutex_lock(&data->work_mutex);
 
 	if (data->enable_ps_sensor == 1) {
-		uint8_t range_status=0, range_start=0;
+
+		/* vl6180_dbgmsg("Enter\n"); */
 		data->rangeData.errorStatus = 0xFF; /* to reset the data, should be set by API */
-                VL6180x_RdByte(vl6180x_dev, RESULT_RANGE_STATUS, &range_status);
-                VL6180x_RdByte(vl6180x_dev, SYSRANGE_START, &range_start);	
+		VL6180x_RdByte(vl6180x_dev, RESULT_RANGE_STATUS, &range_status);
+		VL6180x_RdByte(vl6180x_dev, SYSRANGE_START, &range_start);
+
 		if (data->enableDebug) {
 			vl6180_errmsg("RangeStatus as 0x%x,RangeStart: 0x%x\n",range_status,range_start);
 		}
@@ -329,8 +356,10 @@ static void stmvl6180_work_handler(struct work_struct *work)
 		if (to_startPS)
 			VL6180x_RangeSetSystemMode(vl6180x_dev, MODE_START_STOP |  MODE_SINGLESHOT);
 
-	schedule_delayed_work(&data->dwork, msecs_to_jiffies((data->delay_ms)));	/* restart timer */
+		/* restart timer */
+		schedule_delayed_work(&data->dwork, msecs_to_jiffies((data->delay_ms)));
 
+	    /* vl6180_dbgmsg("End\n"); */
 	}
 
 	mutex_unlock(&data->work_mutex);
@@ -344,10 +373,9 @@ static irqreturn_t stmvl6180_interrupt_handler(int vec, void *info)
 
 	struct stmvl6180_data *data = gp_vl6180_data;
 
-	if (data->irq == vec) {
-		vl6180_dbgmsg("==>interrupt_handler\n");
+	if (data->irq == vec)
 		schedule_delayed_work(&data->dwork, 0);
-	}
+
 	return IRQ_HANDLED;
 }
 #endif
@@ -356,34 +384,28 @@ static irqreturn_t stmvl6180_interrupt_handler(int vec, void *info)
  * SysFS support
  */
 static ssize_t stmvl6180_show_enable_ps_sensor(struct device *dev,
-					       struct device_attribute *attr,
-					       char *buf)
+				struct device_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%d\n", gp_vl6180_data->enable_ps_sensor);
 }
 
 static ssize_t stmvl6180_store_enable_ps_sensor(struct device *dev,
-						struct device_attribute *attr,
-						const char *buf, size_t count)
+				struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct stmvl6180_data *data = gp_vl6180_data;
 	unsigned long val = simple_strtoul(buf, NULL, 10);
 
-	vl6180_dbgmsg("enable ps senosr ( %ld)\n", val);
-
 	if ((val != 0) && (val != 1)) {
-		pr_err("%s:store unvalid value=%ld\n", __func__, val);
+		vl6180_errmsg("store unvalid value=%ld\n", val);
 		return count;
 	}
+	vl6180_dbgmsg("Enter, enable ps senosr ( %ld)\n", val);
 	mutex_lock(&data->work_mutex);
+	vl6180_dbgmsg("enable_ps_sensor old flag:%d\n", data->enable_ps_sensor);
 	if (val == 1) {
 		/* turn on tof sensor */
-		if (data->enable_ps_sensor == 0) {
-			/* to start */
+		if (data->enable_ps_sensor == 0)
 			stmvl6180_start(data, 3, NORMAL_MODE);
-		} else {
-			vl6180_errmsg("Already enabled. Skip !");
-		}
 	} else {
 		/* turn off tof sensor */
 		if (data->enable_ps_sensor == 1) {
@@ -392,27 +414,25 @@ static ssize_t stmvl6180_store_enable_ps_sensor(struct device *dev,
 			stmvl6180_stop(data);
 		}
 	}
-	vl6180_dbgmsg("End\n");
+
 	mutex_unlock(&data->work_mutex);
+	vl6180_dbgmsg("End\n");
 
 	return count;
 }
 
 static DEVICE_ATTR(enable_ps_sensor, S_IWUGO | S_IRUGO,
-		   stmvl6180_show_enable_ps_sensor,
-		   stmvl6180_store_enable_ps_sensor);
+				   stmvl6180_show_enable_ps_sensor, stmvl6180_store_enable_ps_sensor);
 
 static ssize_t stmvl6180_show_enable_debug(struct device *dev,
-					   struct device_attribute *attr,
-					   char *buf)
+				struct device_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%d\n", gp_vl6180_data->enableDebug);
 }
 
-/* for als integration time setup */
+/* for debug */
 static ssize_t stmvl6180_store_enable_debug(struct device *dev,
-					    struct device_attribute *attr,
-					    const char *buf, size_t count)
+					struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct stmvl6180_data *data = gp_vl6180_data;
 	long on = simple_strtoul(buf, NULL, 10);
@@ -426,13 +446,12 @@ static ssize_t stmvl6180_store_enable_debug(struct device *dev,
 	return count;
 }
 
-//DEVICE_ATTR(name,mode,show,store)
+/* DEVICE_ATTR(name,mode,show,store) */
 static DEVICE_ATTR(enable_debug, S_IWUSR | S_IRUGO,
-		   stmvl6180_show_enable_debug, stmvl6180_store_enable_debug);
+				   stmvl6180_show_enable_debug, stmvl6180_store_enable_debug);
 
 static ssize_t stmvl6180_show_set_delay_ms(struct device *dev,
-					   struct device_attribute *attr,
-					   char *buf)
+				struct device_attribute *attr, char *buf)
 {
 	struct stmvl6180_data *data = gp_vl6180_data;
 	return sprintf(buf, "%d\n", data->delay_ms);
@@ -440,19 +459,19 @@ static ssize_t stmvl6180_show_set_delay_ms(struct device *dev,
 
 /* for work handler scheduler time */
 static ssize_t stmvl6180_store_set_delay_ms(struct device *dev,
-					    struct device_attribute *attr,
-					    const char *buf, size_t count)
+					struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct stmvl6180_data *data = gp_vl6180_data;
 	long delay_ms = simple_strtoul(buf, NULL, 10);
-	//printk("stmvl6180_store_set_delay_ms as %ld======\n",delay_ms);
+
 	if (delay_ms == 0) {
-		pr_err("%s: set delay_ms=%ld\n", __func__, delay_ms);
+		vl6180_errmsg("set delay_ms=%ld\n", delay_ms);
 		return count;
 	}
 	mutex_lock(&data->work_mutex);
 	data->delay_ms = delay_ms;
 	mutex_unlock(&data->work_mutex);
+
 	return count;
 }
 
@@ -463,9 +482,10 @@ static DEVICE_ATTR(set_delay_ms, S_IWUGO | S_IRUGO,
 static struct attribute *stmvl6180_attributes[] = {
 	&dev_attr_enable_ps_sensor.attr,
 	&dev_attr_enable_debug.attr,
-	&dev_attr_set_delay_ms.attr,
+	&dev_attr_set_delay_ms.attr ,
 	NULL
 };
+
 
 static const struct attribute_group stmvl6180_attr_group = {
 	.attrs = stmvl6180_attributes,
@@ -475,10 +495,8 @@ static const struct attribute_group stmvl6180_attr_group = {
  * misc device file operation functions
  */
 static int stmvl6180_ioctl_handler(struct file *file,
-				   unsigned int cmd, unsigned long arg,
-				   void __user * p)
+				unsigned int cmd, unsigned long arg, void __user *p)
 {
-
 	int rc = 0;
 	unsigned int xtalkint = 0;
 	int8_t offsetint = 0;
@@ -492,7 +510,7 @@ static int stmvl6180_ioctl_handler(struct file *file,
 	switch (cmd) {
 	/* enable */
 	case VL6180_IOCTL_INIT:
-		vl6180_dbgmsg("VL6180_IOCTL_INIT\n");
+		pr_err("%s: VL6180_IOCTL_INIT\n", __func__);
 		/* turn on tof sensor only if it's not enabled by other client */
 		if (data->enable_ps_sensor == 0) {
 			/* to start */
@@ -547,8 +565,9 @@ static int stmvl6180_ioctl_handler(struct file *file,
 #endif
 		VL6180x_SetOffsetCalibrationData(vl6180x_dev, offsetint);
 		break;
+	/* disable */
 	case VL6180_IOCTL_STOP:
-		vl6180_dbgmsg("VL6180_IOCTL_STOP\n");
+		vl6180_errmsg("VL6180_IOCTL_STOP\n");
 		/* turn off tof sensor only if it's enabled by other client */
 		if (data->enable_ps_sensor == 1) {
 			data->enable_ps_sensor = 0;
@@ -587,7 +606,7 @@ static int stmvl6180_ioctl_handler(struct file *file,
 											(uint16_t *)&reg.reg_data);
 			else
 				reg.status = VL6180x_WrWord(vl6180x_dev, (uint16_t)reg.reg_index,
-											(uint16_t)reg.reg_data);
+											(uint16_t)reg.reg_data);			
 			break;
 		case(1):
 			if (reg.is_read)
@@ -595,10 +614,11 @@ static int stmvl6180_ioctl_handler(struct file *file,
 											(uint8_t *)&reg.reg_data);
 			else
 				reg.status = VL6180x_WrByte(vl6180x_dev, (uint16_t)reg.reg_index,
-											(uint8_t)reg.reg_data);
+											(uint8_t)reg.reg_data);						
 			break;
 		default:
 			reg.status = -1;
+
 		}
 		if (copy_to_user((struct stmvl6180_register *)p, &reg,
 							sizeof(struct stmvl6180_register))) {
@@ -620,10 +640,10 @@ static int stmvl6180_open(struct inode *inode, struct file *file)
 
 static int stmvl6180_flush(struct file *file, fl_owner_t id)
 {
+#if 0
 	struct stmvl6180_data *data = gp_vl6180_data;
 	(void) file;
 	(void) id;
-
 	if (data) {
 		if (data->enable_ps_sensor == 1) {
 			/* turn off tof sensor if it's enabled */
@@ -632,11 +652,12 @@ static int stmvl6180_flush(struct file *file, fl_owner_t id)
 			stmvl6180_stop(data);
 		}
 	}
+#endif
 	return 0;
 }
 
 static long stmvl6180_ioctl(struct file *file,
-			    unsigned int cmd, unsigned long arg)
+				unsigned int cmd, unsigned long arg)
 {
 	int ret;
 
@@ -645,6 +666,17 @@ static long stmvl6180_ioctl(struct file *file,
 	mutex_unlock(&gp_vl6180_data->work_mutex);
 
 	return ret;
+}
+
+/* Input device hooks to power up/down the device */
+static int stmvl6180_data_dev_open(struct input_dev *input_dev_ps)
+{
+	return 0;
+}
+
+static void stmvl6180_data_dev_close(struct input_dev *input_dev_ps)
+{
+	return;
 }
 
 /*
@@ -656,35 +688,36 @@ static int stmvl6180_init_client(struct stmvl6180_data *data)
 	uint8_t model_major = 0, model_minor = 0;
 	uint8_t i = 0, val;
 
+	vl6180_dbgmsg("Enter\n");
+
 	/* Read Model ID */
 	VL6180x_RdByte(vl6180x_dev, VL6180_MODEL_ID_REG, &id);
-	pr_info("read MODLE_ID: 0x%x\n", id);
+	vl6180_errmsg("read MODLE_ID: 0x%x\n", id);
 	if (id == 0xb4) {
-		pr_info("STM VL6180 Found\n");
+		vl6180_errmsg("STM VL6180 Found\n");
 	} else if (id == 0) {
-		/* Ignore model ID error, suggested by ST engineer */
-		pr_info("Not found STM VL6180, but ignored\n");
+		vl6180_errmsg("Not found STM VL6180\n");
 	}
+
 	/* Read Model Version */
 	VL6180x_RdByte(vl6180x_dev, VL6180_MODEL_REV_MAJOR_REG, &model_major);
 	model_major &= 0x07;
 	VL6180x_RdByte(vl6180x_dev, VL6180_MODEL_REV_MINOR_REG, &model_minor);
 	model_minor &= 0x07;
-	pr_info("STM VL6180 Model Version : %d.%d\n", model_major, model_minor);
+	vl6180_errmsg("STM VL6180 Model Version : %d.%d\n", model_major, model_minor);
 
 	/* Read Module Version */
 	VL6180x_RdByte(vl6180x_dev, VL6180_MODULE_REV_MAJOR_REG, &module_major);
 	VL6180x_RdByte(vl6180x_dev, VL6180_MODULE_REV_MINOR_REG, &module_minor);
-	pr_info("STM VL6180 Module Version : %d.%d\n", module_major,
-		module_minor);
+	vl6180_errmsg("STM VL6180 Module Version : %d.%d\n", module_major, module_minor);
 
 	/* Read Identification */
-	pr_info("STM VL6180 Serial Numbe: ");
+	printk("STM VL6180 Serial Numbe: ");
 	for (i = 0; i <= (VL6180_FIRMWARE_REVISION_ID_REG - VL6180_REVISION_ID_REG); i++) {
 		VL6180x_RdByte(vl6180x_dev, (VL6180_REVISION_ID_REG + i), &val);
-		pr_info("0x%x-", val);
+		printk("0x%x-", val);
 	}
-	pr_info("\n");
+	printk("\n");
 
 
 	/* intialization */
@@ -693,6 +726,7 @@ static int stmvl6180_init_client(struct stmvl6180_data *data)
 		vl6180_dbgmsg("WaitDeviceBoot");
 		VL6180x_WaitDeviceBooted(vl6180x_dev);
 		*/
+
 		/* only called if device being reset, otherwise data being overwrite */
 		vl6180_dbgmsg("Init data!");
 		VL6180x_InitData(vl6180x_dev); /* only called if device being reset */
@@ -703,6 +737,7 @@ static int stmvl6180_init_client(struct stmvl6180_data *data)
 	stmvl6180_read_calibration_file();
 #endif
 
+	vl6180_dbgmsg("End\n");
 
 	return 0;
 }
@@ -736,9 +771,13 @@ static int stmvl6180_start(struct stmvl6180_data *data, uint8_t scaling, init_mo
 		VL6180x_FilterSetState(vl6180x_dev, 0);
 #endif
 		VL6180x_SetXTalkCompensationRate(vl6180x_dev, 0);
+		VL6180x_UpdateByte(vl6180x_dev, SYSRANGE_RANGE_CHECK_ENABLES,
+						~RANGE_CHECK_RANGE_ENABLE_MASK, 0);
+
 	}
 	if (mode == OFFSETCALIB_MODE)
 		VL6180x_SetOffsetCalibrationData(vl6180x_dev, 0);
+
 
 	/* start - single shot mode */
 	VL6180x_RangeSetSystemMode(vl6180x_dev, MODE_START_STOP|MODE_SINGLESHOT);
@@ -748,6 +787,7 @@ static int stmvl6180_start(struct stmvl6180_data *data, uint8_t scaling, init_mo
 	/* enable work handler */
 	stmvl6180_schedule_handler(data);
 
+	vl6180_dbgmsg("End\n");
 
 	return rc;
 }
@@ -779,16 +819,16 @@ static int stmvl6180_stop(struct stmvl6180_data *data)
  * I2C init/probing/exit functions
  */
 static const struct file_operations stmvl6180_ranging_fops = {
-	.owner = THIS_MODULE,
-	.unlocked_ioctl = stmvl6180_ioctl,
-	.open = stmvl6180_open,
-	.flush = stmvl6180_flush,
+	.owner =			THIS_MODULE,
+	.unlocked_ioctl =	stmvl6180_ioctl,
+	.open =				stmvl6180_open,
+	.flush =			stmvl6180_flush,
 };
 
 static struct miscdevice stmvl6180_ranging_dev = {
-	.minor = MISC_DYNAMIC_MINOR,
-	.name = "stmvl6180_ranging",
-	.fops = &stmvl6180_ranging_fops
+	.minor =	MISC_DYNAMIC_MINOR,
+	.name =		"stmvl6180_ranging",
+	.fops =		&stmvl6180_ranging_fops
 };
 
 static int stmvl6180_setup(struct stmvl6180_data *data)
@@ -859,6 +899,10 @@ static int stmvl6180_setup(struct stmvl6180_data *data)
 	input_set_abs_params(data->input_dev_ps, ABS_HAT3Y, 0, 0xffffffff, 0, 0);
 	data->input_dev_ps->name = "STM VL6180 proximity sensor";
 
+	/* setup the open/close callbacks for the input_device */
+	data->input_dev_ps->open = stmvl6180_data_dev_open;
+	data->input_dev_ps->close = stmvl6180_data_dev_close;
+
 	rc = input_register_device(data->input_dev_ps);
 	if (rc) {
 		rc = -ENOMEM;
@@ -926,6 +970,8 @@ static int __init stmvl6180_init(void)
 	}
 	/* assign to global variable */
 	gp_vl6180_data = vl6180_data;
+	vl6180_data->tof_start = stmvl6180_start;
+	vl6180_data->tof_stop = stmvl6180_stop;
 	/* assign function table */
 	vl6180_data->pmodule_func_tbl = &stmvl6180_module_func_tbl;
 	/* client specific init function */
@@ -971,3 +1017,4 @@ MODULE_VERSION(DRIVER_VERSION);
 
 module_init(stmvl6180_init);
 module_exit(stmvl6180_exit);
+

@@ -26,7 +26,7 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ********************************************************************************/
 /*
- * $Date: 2015-07-07 01:05:35 -0700 (Tue, 07 Jul 2015) $
+ * $Date: 2015-07-07 10:05:35 +0200 (Tue, 07 Jul 2015) $
  * $Revision: 2438 $
  */
 
@@ -113,9 +113,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #warning "Als support should be OFF for extended range"
 #endif
 
-/* If CCI interface used, it will be defined */
-//define CAMERA_CCI
 #endif
-/** @} */ // end of api_config
+/** @} */ /* end of api_config */
 
 /* VL6180x_CFG_H_ */

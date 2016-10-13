@@ -72,8 +72,6 @@
 
 static struct fb_info *fbi_list[MAX_FBI_LIST];
 static int fbi_list_index;
-static bool fb_need_set_brightness = false;
-static bool charger_mode = false;
 
 static u32 mdss_fb_pseudo_palette[16] = {
 	0x00000000, 0xffffffff, 0xffffffff, 0xffffffff,
@@ -873,14 +871,6 @@ static int mdss_fb_probe(struct platform_device *pdev)
 			&(mfd->boot_notification_led));
 	}
 
-	rc = of_property_read_bool(pdev->dev.of_node,
-		"huawei,set-brightness-enabled");
-
-	if(rc) {
-		pr_info("set brightness enabled\n");
-		fb_need_set_brightness = true;
-	}
-
 	INIT_LIST_HEAD(&mfd->proc_list);
 
 	mutex_init(&mfd->bl_lock);
@@ -1512,7 +1502,6 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 	int ret = 0;
 	int cur_power_state, req_power_state = MDSS_PANEL_POWER_OFF;
 	char trace_buffer[32];
-	struct mdss_panel_data *pdata = NULL;
 
 	if (!mfd || !op_enable)
 		return -EPERM;
@@ -1554,15 +1543,6 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 	case FB_BLANK_UNBLANK:
 		pr_debug("unblank called. cur pwr state=%d\n", cur_power_state);
 		ret = mdss_fb_blank_unblank(mfd);
-		if(fb_need_set_brightness && charger_mode) {
-			pdata = dev_get_platdata(&mfd->pdev->dev);
-			if(NULL != pdata && NULL != pdata->set_backlight) {
-				mutex_lock(&mfd->bl_lock);
-				pr_info("set backlight on\n");
-				pdata->set_backlight(pdata, 100);
-				mutex_unlock(&mfd->bl_lock);
-			}
-		}
 		break;
 	case BLANK_FLAG_ULP:
 		req_power_state = MDSS_PANEL_POWER_LP2;
@@ -3679,28 +3659,6 @@ static int mdss_fb_mode_switch(struct msm_fb_data_type *mfd, u32 mode)
 	return ret;
 }
 
-
-static int mdss_fb_set_persistence_mode(struct msm_fb_data_type *mfd, u32 mode)
-{
-	struct mdss_panel_info *pinfo = NULL;
-	struct mdss_panel_data *pdata;
-	int ret = 0;
-
-	if (!mfd || !mfd->panel_info)
-		return -EINVAL;
-
-	pinfo = mfd->panel_info;
-
-	mutex_lock(&mfd->bl_lock);
-	pdata = dev_get_platdata(&mfd->pdev->dev);
-	if ((pdata) && (pdata->apply_display_setting)) {
-		ret = pdata->apply_display_setting(pdata, mode);
-	}
-	mutex_unlock(&mfd->bl_lock);
-
-	return ret;
-}
-
 static int __ioctl_wait_idle(struct msm_fb_data_type *mfd, u32 cmd)
 {
 	int ret = 0;
@@ -3722,8 +3680,7 @@ static int __ioctl_wait_idle(struct msm_fb_data_type *mfd, u32 cmd)
 		(cmd != MSMFB_HISTOGRAM_START) &&
 		(cmd != MSMFB_HISTOGRAM_STOP) &&
 		(cmd != MSMFB_HISTOGRAM) &&
-		(cmd != MSMFB_OVERLAY_PREPARE) &&
-		(cmd != MSMFB_SET_PERSISTENCE_MODE)) {
+		(cmd != MSMFB_OVERLAY_PREPARE)) {
 		ret = mdss_fb_pan_idle(mfd);
 	}
 
@@ -3779,7 +3736,6 @@ int mdss_fb_do_ioctl(struct fb_info *info, unsigned int cmd,
 	struct mdp_buf_sync buf_sync;
 	struct msm_sync_pt_data *sync_pt_data = NULL;
 	unsigned int dsi_mode = 0;
-	unsigned int persistence_mode = 0;
 	struct mdss_panel_data *pdata = NULL;
 
 	if (!info || !info->par)
@@ -3862,14 +3818,7 @@ int mdss_fb_do_ioctl(struct fb_info *info, unsigned int cmd,
 
 		ret = mdss_fb_mode_switch(mfd, dsi_mode);
 		break;
-	case MSMFB_SET_PERSISTENCE_MODE:
-		ret = copy_from_user(&persistence_mode, argp, sizeof(persistence_mode));
-		if (ret) {
-			pr_err("%s: MSMFB_SET_PERSISTENCE_MODE ioctl failed\n", __func__);
-			goto exit;
-		}
-		ret = mdss_fb_set_persistence_mode(mfd, persistence_mode);
-		break;
+
 	default:
 		if (mfd->mdp.ioctl_handler)
 			ret = mfd->mdp.ioctl_handler(mfd, cmd, argp);
@@ -4088,22 +4037,3 @@ void mdss_fb_report_panel_dead(struct msm_fb_data_type *mfd)
 	pr_err("Panel has gone bad, sending uevent - %s\n", envp[0]);
 	return;
 }
-
-static int __init early_parse_boot_mode(char *arg)
-{
-	int len = 0;
-
-	if (arg) {
-		len = strlen(arg);
-		if(!strcmp(arg,"charger")) {
-			charger_mode = true;
-			pr_debug("%s: charger mode\n", __func__);
-		} else {
-			charger_mode = false;
-			pr_debug("%s: not charger mode\n", __func__);
-		}
-	}
-	return 0;
-}
-early_param("androidboot.mode", early_parse_boot_mode);
-

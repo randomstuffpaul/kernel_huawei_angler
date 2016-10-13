@@ -54,6 +54,8 @@
 #include "stmvl6180.h"
 
 #ifdef CAMERA_CCI
+
+#define I2C_MAX_MODE        4
 /*
  * Global data
  */
@@ -102,6 +104,13 @@ static int stmvl6180_get_dt_data(struct device *dev, struct cci_data *data)
 			rc = 0;
 		}
 		vl6180_dbgmsg("cci_master: %d\n", data->cci_master);
+		rc = of_property_read_u32(of_node, "qcom,slave-addr",&data->slave_addr);
+		if (rc < 0) {
+			vl6180_errmsg("failed %d\n", __LINE__);
+			data->slave_addr = 0x29;
+			rc = 0;
+		}
+		vl6180_dbgmsg("slave addr: %d\n", data->slave_addr);
 		if (of_find_property(of_node, "qcom,cam-vreg-name", NULL)) {
 			vreg_cfg = &data->vreg_cfg;
 			rc = msm_camera_get_dt_vreg_data(of_node,
@@ -111,7 +120,34 @@ static int stmvl6180_get_dt_data(struct device *dev, struct cci_data *data)
 				return rc;
 			}
 		}
-		vl6180_dbgmsg("vreg-name: %s min_volt: %d max_volt: %d", vreg_cfg->cam_vreg->reg_name, vreg_cfg->cam_vreg->min_voltage, vreg_cfg->cam_vreg->max_voltage);
+		vl6180_dbgmsg("vreg-name: %s min_volt: %d max_volt: %d",
+					vreg_cfg->cam_vreg->reg_name,
+					vreg_cfg->cam_vreg->min_voltage,
+					vreg_cfg->cam_vreg->max_voltage);
+
+		data->en_gpio = of_get_named_gpio(of_node,
+						"stmvl6180,ldaf-en-gpio",0);
+		if (data->en_gpio < 0 || !gpio_is_valid(data->en_gpio)) {
+			vl6180_errmsg("en_gpio is unavailable or invalid\n");
+			return data->en_gpio;
+	        }
+		data->int_gpio = of_get_named_gpio(of_node,
+						"stmvl6180,ldaf-int-gpio",0);
+		if (data->int_gpio < 0 || !gpio_is_valid(data->int_gpio)) {
+			vl6180_errmsg("en_gpio is unvailable or invalid\n");
+			return data->int_gpio;
+		}
+		vl6180_dbgmsg("ldaf_int: %u,ldaf_en: %u\n",
+						data->int_gpio,data->en_gpio);
+
+		rc = of_property_read_u32(of_node, "qcom,i2c-freq-mode",
+							&data->i2c_freq_mode);
+		if (rc < 0 || data->i2c_freq_mode >= I2C_MAX_MODES) {
+			data->i2c_freq_mode = 0;
+			vl6180_errmsg("invalid i2c frequency mode\n");
+		}
+		vl6180_dbgmsg("i2c_freq_mode: %u\n",data->i2c_freq_mode);
+
 	}
 	vl6180_dbgmsg("End rc =%d\n", rc);
 
@@ -175,13 +211,28 @@ static const struct v4l2_subdev_internal_ops msm_tof_internal_ops = {
 static long msm_tof_subdev_ioctl(struct v4l2_subdev *sd,
 			unsigned int cmd, void *arg)
 {
-	vl6180_dbgmsg("Subdev_ioctl not handled\n");
+	vl6180_dbgmsg("Subdev_ioctl not handled cmd: %u arg: %p\n",cmd,arg);
 	return 0;
 }
 
 static int32_t msm_tof_power(struct v4l2_subdev *sd, int on)
 {
-	vl6180_dbgmsg("TOF power called\n");
+	struct stmvl6180_data *stmdata = stmvl6180_getobject();
+
+	if(stmdata) {
+		mutex_lock(&stmdata->work_mutex);
+		if(on) {
+			if(stmdata->tof_start && stmdata->enable_ps_sensor == 0)
+				stmdata->tof_start(stmdata, 3, NORMAL_MODE);
+		} else {
+			if(stmdata->tof_stop && stmdata->enable_ps_sensor == 1) {
+				stmdata->enable_ps_sensor = 0;
+				stmdata->tof_stop(stmdata);
+			}
+		}
+		mutex_unlock(&stmdata->work_mutex);
+	}
+	vl6180_dbgmsg("TOF power called %d\n", on);
 	return 0;
 }
 
@@ -229,7 +280,8 @@ static int stmvl6180_cci_init(struct cci_data *data)
 		data->subdev_initialized = TRUE;
 	}
 
-	cci_client->sid = 0x29;
+	cci_client->sid = data->slave_addr;
+	cci_client->i2c_freq_mode = data->i2c_freq_mode;
 	cci_client->retries = 3;
 	cci_client->id_map = 0;
 	cci_client->cci_i2c_master = data->cci_master;
@@ -242,7 +294,7 @@ static int stmvl6180_cci_init(struct cci_data *data)
 
 	data->client->addr_type = MSM_CAMERA_I2C_WORD_ADDR;
 
-	return 0;
+    return 0;
 }
 
 static int32_t stmvl6180_platform_probe(struct platform_device *pdev)
@@ -284,6 +336,15 @@ static int32_t stmvl6180_platform_probe(struct platform_device *pdev)
 		return rc;
 	}
 	data->subdev_id = pdev->id;
+
+	rc = gpio_request_one(data->en_gpio,GPIOF_OUT_INIT_LOW,
+						"stmvl6180_ldaf_en_gpio");
+	if(rc) {
+		vl6180_errmsg("failed gpio request %u\n",data->en_gpio);
+		return -EINVAL;
+	}
+	/* ldaf_int not used */
+	data->int_gpio = -1;
 
 	/* Set device type as platform device */
 	data->device_type = MSM_CAMERA_PLATFORM_DEVICE;
@@ -330,7 +391,9 @@ int stmvl6180_power_up_cci(void *cci_object, unsigned int *preset_flag)
 			vl6180_errmsg("stmvl6180_vreg_control failed %d\n", __LINE__);
 			return ret;
 		}
+		gpio_set_value(data->en_gpio,STMVL6180_GPIO_ENABLE);
 	}
+	msleep(3);
 	data->power_up = 1;
 	*preset_flag = 1;
 	vl6180_dbgmsg("End\n");
@@ -352,6 +415,7 @@ int stmvl6180_power_down_cci(void *cci_object)
 		}
 		/* actual power down */
 		if (data->device_type == MSM_CAMERA_PLATFORM_DEVICE) {
+			gpio_set_value(data->en_gpio,STMVL6180_GPIO_DISABLE);
 			ret = stmvl6180_vreg_control(data, 0);
 			if (ret < 0) {
 				vl6180_errmsg("stmvl6180_vreg_control failed %d\n", __LINE__);

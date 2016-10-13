@@ -78,6 +78,7 @@ obj-$(CONFIG_SENSORS_BMA2X2)	+= bstclass.o
 
 obj-$(CONFIG_SENSORS_BMA2X2)	+= bma2x2.o
 obj-$(CONFIG_SENSORS_LTR553)	+= ltr553.o
+obj-$(CONFIG_INPUT_FPC1020)	+= fpc1020_tee.o
 
 ifeq ($(CONFIG_SENSORS_BMA2X2_ENABLE_INT1),y)
 	EXTRA_CFLAGS += -DBMA2X2_ENABLE_INT1
@@ -89,5 +90,4 @@ endif
 
 obj-$(CONFIG_SENSORS_MC3430)	+= mc3xxx.o
 obj-$(CONFIG_SENSORS_ISL29044A)	+= isl29044a.o
-obj-$(CONFIG_LASER_STMVL6180)		+= vl6180/
-obj-$(CONFIG_RF_DETECT)	+= rf_detect.o
+obj-$(CONFIG_STMVL6180)		+= vl6180/

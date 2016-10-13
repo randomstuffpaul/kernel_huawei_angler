@@ -18,26 +18,19 @@
 
 #include <linux/workqueue.h>
 #include <linux/power_supply.h>
-#include <linux/hrtimer.h>
 
 #include <linux/usb/otg.h>
 #include "power.h"
 
 #define DWC3_IDEV_CHG_MAX 1500
 #define DWC3_HVDCP_CHG_MAX 1800
-
-/* added for floated charger */
-#define DWC3_FLOAT_CHG_MAX 1000
+#define DWC3_USB30_CHG_MAX 900
 
 /*
  * Module param to override current drawn for DCP charger
  * Declared in dwc3-msm module
  */
 extern int dcp_max_current;
-
-#define DWC_LS_DM	  0x1
-#define DWC_LS_DP	  0x2
-#define DWC3_LS		  0x3
 
 struct dwc3_charger;
 
@@ -65,8 +58,6 @@ struct dwc3_otg {
 	struct completion	dwc3_xcvr_vbus_init;
 	int			charger_retry_count;
 	int			vbus_retry_count;
-	int			false_sdp_retry_count;
-	struct timer_list	chg_check_timer;
 };
 
 /**
@@ -97,15 +88,13 @@ struct dwc3_charger {
 	bool			charging_disabled;
 
 	bool			skip_chg_detect;
-
+	bool			internal_chg_detect;
 	/* start/stop charger detection, provided by external charger module */
 	void	(*start_detection)(struct dwc3_charger *charger, bool start);
 
 	/* to notify OTG about charger detection completion, provided by OTG */
 	void	(*notify_detection_complete)(struct usb_otg *otg,
 						struct dwc3_charger *charger);
-	/* get the charger linestate */
-	u32	(*get_linestate)(struct dwc3_charger *charger);
 };
 
 /* for external charger driver */
@@ -126,6 +115,7 @@ enum dwc3_id_state {
 struct dwc3_ext_xceiv {
 	enum dwc3_id_state	id;
 	bool			bsv;
+	unsigned int	cc_power_max;
 
 	/* to notify OTG about LPM exit event, provided by OTG */
 	void	(*notify_ext_events)(struct usb_otg *otg,

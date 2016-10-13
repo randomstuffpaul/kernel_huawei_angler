@@ -52,10 +52,6 @@ libs-y		+= $(LIBGCC)
 # Default target when executing plain make
 ifeq ($(CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE),y)
 KBUILD_IMAGE	:= Image.gz-dtb
-# Generate uncompressed variant as secondary image
-ifeq ($(CONFIG_BUILD_ARM64_UNCOMPRESSED_APPENDED_DTB_IMAGE),y)
-KBUILD_IMAGE	+= Image-dtb
-endif
 else
 ifeq ($(CONFIG_BUILD_ARM64_UNCOMPRESSED_APPENDED_DTB_IMAGE),y)
 KBUILD_IMAGE	:= Image-dtb
@@ -81,8 +77,11 @@ zinstall install: vmlinux
 
 dtbs: scripts
 	$(Q)$(MAKE) $(build)=$(boot)/dts dtbs
+ifeq ($(CONFIG_MACH_LGE),y)
+	$(Q)$(MAKE) $(build)=$(boot)/dts/lge dtbs
+else
 	$(Q)$(MAKE) $(build)=$(boot)/dts/qcom dtbs
-	$(Q)$(MAKE) $(build)=$(boot)/dts/huawei dtbs
+endif
 
 PHONY += vdso_install
 vdso_install:

@@ -22,4 +22,3 @@ else
 endif
 
 obj-$(CONFIG_DEBUG_FS) += msm_bus_dbg.o
-

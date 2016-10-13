@@ -23,14 +23,10 @@
 #ifndef STMVL6180_I2C_H
 #define STMVL6180_I2C_H
 
-#include "vl6180x_cfg.h"
-
 #ifndef CAMERA_CCI
 struct i2c_data {
 	struct i2c_client *client;
-	struct regulator *vdd;
-	struct regulator *vcc;
-	unsigned int cs_gpio_num;
+	struct regulator *vana;
 	uint8_t power_up;
 };
 int stmvl6180_init_i2c(void);

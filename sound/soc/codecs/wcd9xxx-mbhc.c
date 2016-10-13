@@ -35,7 +35,6 @@
 #include <linux/kernel.h>
 #include <linux/gpio.h>
 #include <linux/input.h>
-#include <linux/of_gpio.h>
 #include "wcd9320.h"
 #include "wcd9306.h"
 #include "wcd9xxx-mbhc.h"
@@ -109,7 +108,7 @@
  * Invalid voltage range for the detection
  * of plug type with current source
  */
-#define WCD9XXX_CS_MEAS_INVALD_RANGE_LOW_MV 160
+#define WCD9XXX_CS_MEAS_INVALD_RANGE_LOW_MV 230
 #define WCD9XXX_CS_MEAS_INVALD_RANGE_HIGH_MV 265
 
 /*
@@ -130,7 +129,7 @@
 #define WCD9XXX_WG_TIME_FACTOR_US	240
 
 #define WCD9XXX_V_CS_HS_MAX 500
-#define WCD9XXX_V_CS_NO_MIC 16
+#define WCD9XXX_V_CS_NO_MIC 5
 #define WCD9XXX_MB_MEAS_DELTA_MAX_MV 80
 #define WCD9XXX_CS_MEAS_DELTA_MAX_MV 12
 
@@ -161,9 +160,6 @@ MODULE_PARM_DESC(z_det_box_car_avg,
 		 "Number of samples for impedance detection");
 
 static bool detect_use_vddio_switch;
-
-/* used for micbias power up or power down */
-static int g_headset_switch_gpio=-1;
 
 struct wcd9xxx_mbhc_detect {
 	u16 dce;
@@ -857,10 +853,10 @@ static void wcd9xxx_insert_detect_setup(struct wcd9xxx_mbhc *mbhc, bool ins)
 	snd_soc_update_bits(mbhc->codec, WCD9XXX_A_MBHC_INSERT_DETECT, 1, 0);
 	if (mbhc->mbhc_cfg->gpio_level_insert)
 		snd_soc_write(mbhc->codec, WCD9XXX_A_MBHC_INSERT_DETECT,
-			      (0x18 | (ins ? (1 << 1) : 0)));
+			      (0x68 | (ins ? (1 << 1) : 0)));
 	else
 		snd_soc_write(mbhc->codec, WCD9XXX_A_MBHC_INSERT_DETECT,
-			      (0x1C | (ins ? (1 << 1) : 0)));
+			      (0x6C | (ins ? (1 << 1) : 0)));
 	/* Re-enable detection */
 	snd_soc_update_bits(mbhc->codec, WCD9XXX_A_MBHC_INSERT_DETECT, 1, 1);
 }
@@ -3379,9 +3375,6 @@ static void wcd9xxx_swch_irq_handler(struct wcd9xxx_mbhc *mbhc)
 	pr_debug("%s: Current plug type %d, insert %d\n", __func__,
 		 mbhc->current_plug, insert);
 	if ((mbhc->current_plug == PLUG_TYPE_NONE) && insert) {
-		/* when insert headset, set gpio to high to power up micbias */
-		if( gpio_is_valid(g_headset_switch_gpio) )
-			gpio_direction_output(g_headset_switch_gpio,1);
 
 		mbhc->lpi_enabled = false;
 		wmb();
@@ -3404,10 +3397,6 @@ static void wcd9xxx_swch_irq_handler(struct wcd9xxx_mbhc *mbhc)
 		snd_soc_update_bits(codec, WCD9XXX_A_MBHC_HPH, 0x01, 0x00);
 		wcd9xxx_mbhc_detect_plug_type(mbhc);
 	} else if ((mbhc->current_plug != PLUG_TYPE_NONE) && !insert) {
-		/* when remove headset, set gpio to low to power down micbias */
-		if( gpio_is_valid(g_headset_switch_gpio) )
-			gpio_direction_output(g_headset_switch_gpio,0);
-
 		mbhc->lpi_enabled = false;
 		wmb();
 		/* cancel detect plug */
@@ -3727,8 +3716,8 @@ irqreturn_t wcd9xxx_dce_handler(int irq, void *data)
 	mbhc->mbhc_state = MBHC_STATE_POTENTIAL;
 
 	if (!mbhc->polling_active) {
-		pr_warn("%s: mbhc polling is not active, skip button press\n",
-			__func__);
+		pr_debug("%s: mbhc polling is not active, skip button press\n",
+			 __func__);
 		goto done;
 	}
 
@@ -5599,23 +5588,6 @@ int wcd9xxx_mbhc_init(struct wcd9xxx_mbhc *mbhc, struct wcd9xxx_resmgr *resmgr,
 	wcd9xxx_regmgr_cond_register(resmgr, 1 << WCD9XXX_COND_HPH_MIC |
 					     1 << WCD9XXX_COND_HPH);
 
-	if( -1 == g_headset_switch_gpio) {
-		struct device_node *of_sound_asoc_node = NULL ;
-		of_sound_asoc_node = of_find_compatible_node(NULL, NULL, "qcom,msm8994-asoc-snd");
-		if( of_sound_asoc_node ) {
-			g_headset_switch_gpio = of_get_named_gpio(of_sound_asoc_node, "headset_mic_switch", 0);
-			if( gpio_is_valid(g_headset_switch_gpio) ) {
-				ret = gpio_request(g_headset_switch_gpio, "headset_mic_switch");
-				if( ret )
-					pr_err("%s:request headset_mic_switch error",__func__);
-			}else{
-				g_headset_switch_gpio = -1 ;
-				pr_err("%s:can not find headset_mic_switch in dtsi",__func__);
-			}
-		}else
-			pr_err("%s: can not find qcom,msm8994-asoc-snd node",__func__);
-	}
-
 	pr_debug("%s: leave ret %d\n", __func__, ret);
 	return ret;
 
@@ -5658,9 +5630,6 @@ void wcd9xxx_mbhc_deinit(struct wcd9xxx_mbhc *mbhc)
 	mutex_destroy(&mbhc->mbhc_lock);
 	wcd9xxx_resmgr_unregister_notifier(mbhc->resmgr, &mbhc->nblock);
 	wcd9xxx_cleanup_debugfs(mbhc);
-
-	if (gpio_is_valid(g_headset_switch_gpio))
-		gpio_free(g_headset_switch_gpio);
 }
 EXPORT_SYMBOL(wcd9xxx_mbhc_deinit);
 

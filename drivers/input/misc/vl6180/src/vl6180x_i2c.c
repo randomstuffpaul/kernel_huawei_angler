@@ -1,4 +1,3 @@
-
 /*******************************************************************************
 Copyright © 2015, STMicroelectronics International N.V.
 All rights reserved.
@@ -46,45 +45,53 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /* TODO you must define value for  I2C_BUFFER_CONFIG in configuration or platform h */
 #endif
 
+
 #if I2C_BUFFER_CONFIG == 0
     /* GLOBAL config buffer */
-uint8_t i2c_global_buffer[VL6180x_MAX_I2C_XFER_SIZE];
+	uint8_t i2c_global_buffer[VL6180x_MAX_I2C_XFER_SIZE];
 
-#define DECL_I2C_BUFFER
-#define VL6180x_GetI2cBuffer(dev, n_byte)  i2c_global_buffer
+	#define DECL_I2C_BUFFER
+    #define VL6180x_GetI2cBuffer(dev, n_byte)  i2c_global_buffer
 
 #elif I2C_BUFFER_CONFIG == 1
     /* ON STACK */
-#define DECL_I2C_BUFFER  uint8_t LocBuffer[VL6180x_MAX_I2C_XFER_SIZE];
-#define VL6180x_GetI2cBuffer(dev, n_byte)  LocBuffer
+	#define DECL_I2C_BUFFER  uint8_t LocBuffer[VL6180x_MAX_I2C_XFER_SIZE];
+    #define VL6180x_GetI2cBuffer(dev, n_byte)  LocBuffer
 #elif I2C_BUFFER_CONFIG == 2
     /* user define buffer type declare DECL_I2C_BUFFER  as access  via VL6180x_GetI2cBuffer */
-#define DECL_I2C_BUFFER
+    #define DECL_I2C_BUFFER
 #else
 #error "invalid I2C_BUFFER_CONFIG "
 #endif
 
+
 int VL6180x_WrByte(VL6180xDev_t dev, uint16_t index, uint8_t data)
 {
-	int status;
+	int  status;
 	uint8_t *buffer;
-	DECL_I2C_BUFFER VL6180x_I2C_USER_VAR VL6180x_GetI2CAccess(dev);
+	DECL_I2C_BUFFER
+	VL6180x_I2C_USER_VAR
+
+	VL6180x_GetI2CAccess(dev);
 
 	buffer = VL6180x_GetI2cBuffer(dev, 3);
 	buffer[0] = index >> 8;
 	buffer[1] = index & 0xFF;
 	buffer[2] = data;
 
-	status = VL6180x_I2CWrite(dev, buffer, (uint8_t) 3);
+	status = VL6180x_I2CWrite(dev, buffer, (uint8_t)3);
 	VL6180x_DoneI2CAcces(dev);
 	return status;
 }
 
 int VL6180x_WrWord(VL6180xDev_t dev, uint16_t index, uint16_t data)
 {
-	int status;
-	DECL_I2C_BUFFER uint8_t * buffer;
-	VL6180x_I2C_USER_VAR VL6180x_GetI2CAccess(dev);
+	int  status;
+	DECL_I2C_BUFFER
+	uint8_t *buffer;
+	VL6180x_I2C_USER_VAR
+
+	VL6180x_GetI2CAccess(dev);
 
 	buffer = VL6180x_GetI2cBuffer(dev, 4);
 	buffer[0] = index >> 8;
@@ -92,15 +99,18 @@ int VL6180x_WrWord(VL6180xDev_t dev, uint16_t index, uint16_t data)
 	buffer[2] = data >> 8;
 	buffer[3] = data & 0xFF;
 
-	status = VL6180x_I2CWrite(dev, buffer, (uint8_t) 4);
+	status = VL6180x_I2CWrite(dev, buffer, (uint8_t)4);
 	VL6180x_DoneI2CAcces(dev);
 	return status;
 }
 
 int VL6180x_WrDWord(VL6180xDev_t dev, uint16_t index, uint32_t data)
 {
-	VL6180x_I2C_USER_VAR DECL_I2C_BUFFER int status;
+	VL6180x_I2C_USER_VAR
+	DECL_I2C_BUFFER
+	int  status;
 	uint8_t *buffer;
+
 
 	VL6180x_GetI2CAccess(dev);
 	buffer = VL6180x_GetI2cBuffer(dev, 6);
@@ -110,24 +120,26 @@ int VL6180x_WrDWord(VL6180xDev_t dev, uint16_t index, uint32_t data)
 	buffer[3] = (data >> 16) & 0xFF;
 	buffer[4] = (data >> 8) & 0xFF;
 	buffer[5] = data & 0xFF;
-	status = VL6180x_I2CWrite(dev, buffer, (uint8_t) 6);
+	status = VL6180x_I2CWrite(dev, buffer, (uint8_t)6);
 	VL6180x_DoneI2CAcces(dev);
 
 	return status;
 }
 
-int VL6180x_UpdateByte(VL6180xDev_t dev, uint16_t index, uint8_t AndData,
-		       uint8_t OrData)
+int VL6180x_UpdateByte(VL6180xDev_t dev, uint16_t index, uint8_t AndData, uint8_t OrData)
 {
-	VL6180x_I2C_USER_VAR int status;
+	VL6180x_I2C_USER_VAR
+	int  status;
 	uint8_t *buffer;
-	DECL_I2C_BUFFER VL6180x_GetI2CAccess(dev);
+	DECL_I2C_BUFFER
+
+	VL6180x_GetI2CAccess(dev);
 
 	buffer = VL6180x_GetI2cBuffer(dev, 3);
 	buffer[0] = index >> 8;
 	buffer[1] = index & 0xFF;
 
-	status = VL6180x_I2CWrite(dev, (uint8_t *) buffer, (uint8_t) 2);
+	status = VL6180x_I2CWrite(dev, (uint8_t *)buffer, (uint8_t)2);
 	if (!status) {
 		/* read data direct onto buffer */
 		status = VL6180x_I2CRead(dev, buffer, 1);
@@ -144,17 +156,20 @@ int VL6180x_UpdateByte(VL6180xDev_t dev, uint16_t index, uint8_t AndData,
 	return status;
 }
 
-int VL6180x_RdByte(VL6180xDev_t dev, uint16_t index, uint8_t * data)
+int VL6180x_RdByte(VL6180xDev_t dev, uint16_t index, uint8_t *data)
 {
-	VL6180x_I2C_USER_VAR int status;
+	VL6180x_I2C_USER_VAR
+	int  status;
 	uint8_t *buffer;
-	DECL_I2C_BUFFER VL6180x_GetI2CAccess(dev);
+	DECL_I2C_BUFFER
+
+	VL6180x_GetI2CAccess(dev);
 
 	buffer = VL6180x_GetI2cBuffer(dev, 2);
 	buffer[0] = index >> 8;
 	buffer[1] = index & 0xFF;
 
-	status = VL6180x_I2CWrite(dev, buffer, (uint8_t) 2);
+	status = VL6180x_I2CWrite(dev, buffer, (uint8_t)2);
 	if (!status) {
 		status = VL6180x_I2CRead(dev, buffer, 1);
 		if (!status) {
@@ -166,40 +181,45 @@ int VL6180x_RdByte(VL6180xDev_t dev, uint16_t index, uint8_t * data)
 	return status;
 }
 
-int VL6180x_RdWord(VL6180xDev_t dev, uint16_t index, uint16_t * data)
+int VL6180x_RdWord(VL6180xDev_t dev, uint16_t index, uint16_t *data)
 {
-	VL6180x_I2C_USER_VAR int status;
+	VL6180x_I2C_USER_VAR
+	int  status;
 	uint8_t *buffer;
-	DECL_I2C_BUFFER VL6180x_GetI2CAccess(dev);
+	DECL_I2C_BUFFER
+
+	VL6180x_GetI2CAccess(dev);
 
 	buffer = VL6180x_GetI2cBuffer(dev, 2);
 	buffer[0] = index >> 8;
 	buffer[1] = index & 0xFF;
 
-	status = VL6180x_I2CWrite(dev, buffer, (uint8_t) 2);
+	status = VL6180x_I2CWrite(dev, buffer, (uint8_t)2);
 	if (!status) {
 		status = VL6180x_I2CRead(dev, buffer, 2);
 		if (!status) {
 			/* VL6180x register are Big endian if cpu is be direct read direct into *data is possible */
-			*data =
-			    ((uint16_t) buffer[0] << 8) | (uint16_t) buffer[1];
+			*data = ((uint16_t)buffer[0] << 8) | (uint16_t)buffer[1];
 		}
 	}
 	VL6180x_DoneI2CAcces(dev);
 	return status;
 }
 
-int VL6180x_RdDWord(VL6180xDev_t dev, uint16_t index, uint32_t * data)
+int  VL6180x_RdDWord(VL6180xDev_t dev, uint16_t index, uint32_t *data)
 {
-	VL6180x_I2C_USER_VAR int status;
+	VL6180x_I2C_USER_VAR
+	int status;
 	uint8_t *buffer;
-	DECL_I2C_BUFFER VL6180x_GetI2CAccess(dev);
+	DECL_I2C_BUFFER
+
+	VL6180x_GetI2CAccess(dev);
 	buffer = VL6180x_GetI2cBuffer(dev, 4);
 
 	buffer[0] = index >> 8;
-	buffer[1] = index & 0xFF;
+	buffer[1] = index&0xFF;
 
-	status = VL6180x_I2CWrite(dev, (uint8_t *) buffer, (uint8_t) 2);
+	status = VL6180x_I2CWrite(dev, (uint8_t *) buffer, (uint8_t)2);
 	if (!status) {
 		status = VL6180x_I2CRead(dev, buffer, 4);
 		if (!status) {
@@ -214,15 +234,18 @@ int VL6180x_RdDWord(VL6180xDev_t dev, uint16_t index, uint32_t * data)
 
 int  VL6180x_RdMulti(VL6180xDev_t dev, uint16_t index, uint8_t *data, int nData)
 {
-	VL6180x_I2C_USER_VAR int status;
+	VL6180x_I2C_USER_VAR
+	int status;
 	uint8_t *buffer;
-	DECL_I2C_BUFFER VL6180x_GetI2CAccess(dev);
+	DECL_I2C_BUFFER
+
+	VL6180x_GetI2CAccess(dev);
 	buffer = VL6180x_GetI2cBuffer(dev, 2);
 
 	buffer[0] = index >> 8;
 	buffer[1] = index & 0xFF;
 
-	status = VL6180x_I2CWrite(dev, (uint8_t *) buffer, (uint8_t) 2);
+	status = VL6180x_I2CWrite(dev, (uint8_t *)buffer, (uint8_t)2);
 	if (!status) {
 		data[0] = index >> 8;
 		data[1] = index & 0xFF;

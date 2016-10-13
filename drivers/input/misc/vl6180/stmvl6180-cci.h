@@ -23,8 +23,6 @@
 #ifndef STMVL6180_CCI_H
 #define STMVL6180_CCI_H
 
-#include "vl6180x_cfg.h"
-
 #ifdef CAMERA_CCI
 #include <soc/qcom/camera2.h>
 #include "msm_camera_i2c.h"
@@ -33,6 +31,8 @@
 #include "msm_cci.h"
 
 #define	MSM_TOF_MAX_VREGS (10)
+#define STMVL6180_GPIO_ENABLE              1
+#define STMVL6180_GPIO_DISABLE             0
 
 struct msm_tof_vreg {
 	struct camera_vreg_t *cam_vreg;
@@ -50,9 +50,13 @@ struct cci_data {
 	struct msm_sd_subdev msm_sd;
 	struct v4l2_subdev sdev;
 	struct v4l2_subdev_ops *subdev_ops;
-	char subdev_initialized;
 	uint32_t subdev_id;
+	int int_gpio;
+	int en_gpio;
+	uint32_t slave_addr;
+	uint32_t i2c_freq_mode;
 	uint8_t power_up;
+	char subdev_initialized;
 };
 int stmvl6180_init_cci(void);
 void stmvl6180_exit_cci(void *);

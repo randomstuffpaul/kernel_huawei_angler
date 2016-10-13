@@ -45,7 +45,6 @@
 /*
  * API includes
  */
-#include "vl6180x_cfg.h"
 #include "vl6180x_api.h"
 #include "vl6180x_def.h"
 #include "vl6180x_platform.h"
@@ -59,8 +58,6 @@
 /*
  * Global data
  */
-static char const *power_pin_vdd;
-static char const *power_pin_vcc;
 static int stmvl6180_parse_vdd(struct device *dev, struct i2c_data *data);
 
 /*
@@ -68,80 +65,19 @@ static int stmvl6180_parse_vdd(struct device *dev, struct i2c_data *data);
  */
 static int stmvl6180_parse_vdd(struct device *dev, struct i2c_data *data)
 {
-	int err = 0;
+	int ret = 0;
 	vl6180_dbgmsg("Enter\n");
 
-	err = of_property_read_string(dev->of_node, "st,vdd", &power_pin_vdd);
-	if (err) {
-		pr_err("%s: OF error rc=%d at line %d for st,vdd\n",
-		       __func__, err, __LINE__);
-		goto exit;
+	if (dev->of_node) {
+		data->vana = regulator_get(dev, "vdd");
+		if (IS_ERR(data->vana)) {
+			vl6180_errmsg("vdd supply is not provided\n");
+			ret = -1;
+		}
 	}
-
-	err = of_property_read_string(dev->of_node, "st,vcc", &power_pin_vcc);
-	if (err) {
-		pr_err("%s: OF error rc=%d at line %d for st,vdd\n",
-		       __func__, err, __LINE__);
-		goto exit;
-	}
-	data->cs_gpio_num = of_get_named_gpio(dev->of_node, "st,cs_gpio", 0);
-	if (!gpio_is_valid(data->cs_gpio_num)) {
-		pr_err("%s: OF error rc=%d at line %d for cy,cs_gpio\n",
-		       __func__, err, __LINE__);
-		goto exit;
-	}
-
-	/* VDD power on */
-	data->vdd = regulator_get(dev, power_pin_vdd);
-
-	if (IS_ERR(data->vdd)) {
-		pr_err("%s: failed to get st vdd\n", __func__);
-		goto exit;
-	}
-
-	err = regulator_set_voltage(data->vdd, 2850000, 2850000);
-	if (err < 0) {
-		pr_err("%s: failed to set st vdd\n", __func__);
-		goto exit_vdd_regulator_put;
-	}
-
-	/* VCC power on */
-	data->vcc = regulator_get(dev, power_pin_vcc);
-
-	if (IS_ERR(data->vcc)) {
-		pr_err("%s: failed to get st vcc\n", __func__);
-		goto exit_vdd_regulator_put;
-	}
-
-	err = regulator_set_voltage(data->vcc, 0, 0);
-	if (err < 0) {
-		pr_err("%s: failed to set st vcc\n", __func__);
-		goto exit_vcc_regulator_put;
-	}
-
-	err = gpio_request(data->cs_gpio_num, "tmvl6180");
-	if (err < 0) {
-		pr_err("%s: failed to get cs gpio\n", __func__);
-		goto exit_vcc_regulator_put;
-	}
-
-	err = gpio_direction_output(data->cs_gpio_num, 1);
-	if (err < 0) {
-		pr_err("%s: failed to get cs gpio\n", __func__);
-		goto exit_vcc_regulator_put;
-	}
-
-
 	vl6180_dbgmsg("End\n");
 
-	return err;
-
-exit_vcc_regulator_put:
-	regulator_put(data->vcc);
-exit_vdd_regulator_put:
-	regulator_put(data->vdd);
-exit:
-	return err;
+	return ret;
 }
 
 static int stmvl6180_probe(struct i2c_client *client,
@@ -245,25 +181,18 @@ int stmvl6180_power_up_i2c(void *i2c_object, unsigned int *preset_flag)
 
 	/* actual power on */
 #ifndef STM_TEST
-	if (data != NULL) {
-		ret = regulator_set_optimum_mode(data->vdd, 100000);
-		pr_info("%s: stmvl6180 set L18 to mode %d\n", __func__,  ret);
-		ret = regulator_enable(data->vdd);
-		if (ret < 0) {
-			pr_err("%s: failed to enable st vdd\n", __func__);
-			return ret;
-		}
-		ret = regulator_enable(data->vcc);
-		if ( ret < 0) {
-			pr_err("%s: failed to enable st vcc\n", __func__);
-			return ret;
-		}
-		gpio_set_value(data->cs_gpio_num, 1);
-
-		/* Delay 3 ms to wait for chip power up */
-		msleep(3);
-		data->power_up = 1;
+	ret = regulator_set_voltage(data->vana,	VL6180_VDD_MIN, VL6180_VDD_MAX);
+	if (ret < 0) {
+		vl6180_errmsg("set_vol(%p) fail %d\n", data->vana , ret);
+		return ret;
 	}
+	ret = regulator_enable(data->vana);
+	msleep(3);
+	if (ret < 0) {
+		vl6180_errmsg("reg enable(%p) failed.rc=%d\n", data->vana, ret);
+		return ret;
+	}
+	data->power_up = 1;
 	*preset_flag = 1;
 #endif
 
@@ -281,20 +210,11 @@ int stmvl6180_power_down_i2c(void *i2c_object)
 	vl6180_dbgmsg("Enter\n");
 #ifndef STM_TEST
 	msleep(3);
-	if (data != NULL) {
-		ret = regulator_disable(data->vdd);
-		if (ret < 0) {
-			pr_err("%s: failed to disable st vdd\n", __func__);
-			return ret;
-		}
-		ret = regulator_disable(data->vcc);
-		if (ret < 0) {
-			pr_err("%s: failed to disable st vcc\n", __func__);
-			return ret;
-		}
-		gpio_set_value(data->cs_gpio_num, 0);
-		data->power_up = 0;
+	ret = regulator_disable(data->vana);
+	if (ret < 0) {
+		vl6180_errmsg("reg disable(%p) failed.rc=%d\n", data->vana, ret);
 	}
+	data->power_up = 0;
 #endif
 
 	vl6180_dbgmsg("End\n");
